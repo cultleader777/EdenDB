@@ -1,0 +1,47 @@
+@startuml
+
+!include options.plantuml
+
+interface asdi::Collection<T>
+hide "asdi::Collection" members
+
+interface asdi::IndexedCollection<T>
+hide "asdi::IndexedCollection" members
+
+interface asdi::idb::Atom
+hide "asdi::idb::Atom" members
+
+interface asdi::edb::Constant
+hide "asdi::edb::Constant" members
+
+class asdi::edb::Schema<T: AttributeName>
+hide "asdi::edb::Schema" members
+
+namespace asdi::idb::query {
+    interface Queryable
+
+    class Query
+    class QuerySet
+    class Row
+    class View
+
+    Queryable ..> Query
+    Queryable ..> View
+
+    Query *-> asdi::idb::Atom
+    Query ..|> asdi::Collection
+
+    QuerySet *-down-> "*" Query
+
+    Row *-> "*" asdi::edb::Constant
+    Row ..|> asdi::Collection
+    Row ..|> asdi::IndexedCollection
+  ' Row ..|> asdi::idb::query::relational::FactOps
+
+    View *-> "*" Row
+    View *-> asdi::edb::Schema
+    View ..|> asdi::Collection
+  ' View ..|> asdi::idb::query::relational::RelationalOps
+}
+
+@enduml

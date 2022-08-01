@@ -1,0 +1,46 @@
+@startuml
+
+!include options.plantuml
+
+class asdi::features::FeatureSet
+hide "asdi::features::FeatureSet" members
+
+class asdi::edb::RelationSet
+hide "asdi::edb::RelationSet" members
+
+class asdi::idb::RuleSet
+hide "asdi::idb::RuleSet" members
+
+class asdi::idb::query::QuerySet
+hide "asdi::idb::query::QuerySet" members
+
+namespace asdi {
+
+    interface AttributeName
+    interface Collection<T>
+    interface IndexedCollection<K,V>
+    interface Labeled
+    interface MaybeAnonymous
+    interface MaybePositive
+    interface ProgramCore
+
+    class AttributeNameRef<T: AttributeName> << (T,#ADD1B2) type>>
+    class NameReferenceSet<T: AttributeName>
+    class "**Program**" as Program
+
+    AttributeNameRef o-down-> AttributeName: <<rc>>
+
+    IndexedCollection --|> Collection
+
+    Program ..|> ProgramCore
+    Program ..|> MaybePositive
+    Program *--> asdi::features::FeatureSet
+    Program *-> "extensional" asdi::edb::RelationSet
+    Program *--> "intensional" asdi::edb::RelationSet
+    Program *--> "predicates" NameReferenceSet
+    Program *--> "variables" NameReferenceSet
+    Program *-> asdi::idb::RuleSet
+    Program *-> asdi::idb::query::QuerySet
+}
+
+@enduml

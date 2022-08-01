@@ -1,0 +1,7 @@
+(executable
+ (public_name sketch)
+ (name main)
+ (preprocess (pps ppx_blob ppx_deriving_yojson))
+ (preprocessor_deps (file edb_data.bin))
+ (libraries yojson checkseum)
+ (modes (native exe)))

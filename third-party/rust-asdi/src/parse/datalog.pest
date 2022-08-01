@@ -1,0 +1,405 @@
+// ------------------------------------------------------------------------------------------------
+// Top-Level definitions
+// ------------------------------------------------------------------------------------------------
+
+program = {
+    SOI ~ pragma* ~ ( fact | rule | query )* ~ EOI
+}
+
+// ------------------------------------------------------------------------------------------------
+// Intermediate definitions
+// ------------------------------------------------------------------------------------------------
+
+fact = {
+    predicate ~ (LEFT_PAREN ~ constant_list ~ RIGHT_PAREN)? ~ DOT
+}
+
+rule = {
+    rule_head? ~ material_implication ~ rule_body ~ DOT
+}
+
+rule_head = {
+    // FEATURE: constraints
+    UC_FALSUM
+             // FEATURE: disjunction
+    | atom ~ ( disjunction ~ atom )*
+}
+
+rule_body = {
+    literal_list
+}
+
+
+query = {
+    ( query_prefix ~ atom ~ DOT )
+    | ( atom ~ QMARK )
+}
+
+atom = {
+    predicate ~ ( LEFT_PAREN ~ term_list ~ RIGHT_PAREN )
+}
+
+literal = {
+    // FEATURE: negation
+    // FEATURE: comparisons
+    negation? ~ ( atom | comparison )
+}
+
+literal_list = _{
+    literal ~ ( conjunction ~ literal )*
+}
+
+comparison = {
+    named_term ~ comparison_operator ~ named_term ?
+}
+
+term = {
+    variable | constant
+}
+
+
+named_term = {
+    named_variable | constant
+}
+
+term_list = _{
+    term ~ ( COMMA ~ term )*
+}
+
+constant = {
+    boolean | unquoted_string | quoted_string | number
+}
+
+constant_list = _{
+    constant ~ ( COMMA ~ constant)*
+}
+
+predicate = @{
+    LOWERCASE_LETTER ~ ( CASED_LETTER | DECIMAL_NUMBER | UNDERSCORE )*
+}
+
+variable = _{
+    anonymous_variable | named_variable
+}
+
+anonymous_variable = {
+    UNDERSCORE
+}
+
+named_variable = @{
+    UPPERCASE_LETTER ~ ( CASED_LETTER | DECIMAL_NUMBER | UNDERSCORE )*
+}
+
+identifier_relaxed = @{
+    LETTER ~ ( CASED_LETTER | DECIMAL_NUMBER | UNDERSCORE )*
+}
+
+subscript = @ {
+    ASCII_DIGIT+
+}
+
+// ------------------------------------------------------------------------------------------------
+// Pragmas
+// ------------------------------------------------------------------------------------------------
+
+pragma = {
+    DOT ~ (pragma_assert | pragma_fd | pragma_infer | pragma_feature | pragma_input | pragma_output) ~ DOT
+}
+
+pragma_assert = {
+    keyword_assert ~ predicate ~ attribute_declaration_list
+}
+
+pragma_fd = {
+    keyword_fd ~ predicate ~ COLON ~ attribute_index_list ~ depends_on ~ attribute_index_list
+}
+
+attribute_index_list = _{
+    attribute_index ~ ( COMMA ~ attribute_index )*
+}
+
+attribute_index = _{
+    subscript | predicate
+}
+
+pragma_infer = {
+    keyword_infer ~ predicate ~ ( attribute_declaration_list | ( "from" ~ predicate ))
+}
+
+attribute_declaration_list = _{
+    LEFT_PAREN ~ attribute_declaration ~ (COMMA ~ attribute_declaration)* ~ RIGHT_PAREN
+}
+
+attribute_declaration = {
+    ( predicate ~ ":" )? ~ ( type_id_string | type_id_integer | type_id_boolean )
+}
+
+pragma_feature = {
+    keyword_feature ~ LEFT_PAREN ~ feature_list ~ RIGHT_PAREN
+}
+
+feature_list = _{
+    feature_id ~ ( COMMA ~ feature_id )*
+}
+
+feature_id = _{
+    feature_id_negation
+    | feature_id_comparisons
+    | feature_id_constraints
+    | feature_id_disjunction
+    | feature_id_functional_dependencies
+}
+
+pragma_input = {
+    keyword_input ~ LEFT_PAREN ~ predicate ~ COMMA ~ quoted_string ~ ( COMMA ~ quoted_string )? ~ RIGHT_PAREN
+}
+
+pragma_output = {
+    keyword_output ~ LEFT_PAREN ~ predicate ~ COMMA ~ quoted_string ~ ( COMMA ~ quoted_string )? ~ RIGHT_PAREN
+}
+
+keyword_assert = _{
+    "assert"
+}
+
+keyword_infer = _{
+    "infer"
+}
+
+keyword_fd = _{
+    "fd"
+}
+
+keyword_feature = _{
+    "feature"
+}
+
+keyword_include = _{
+    "include"
+}
+
+keyword_input = _{
+    "input"
+}
+
+keyword_output = _{
+    "output"
+}
+
+type_id_string = {
+    "string"
+}
+
+type_id_integer = {
+    "integer"
+}
+
+type_id_boolean = {
+    "boolean"
+}
+
+feature_id_negation = {
+    "negation"
+}
+
+feature_id_comparisons = {
+    "comparisons"
+}
+
+feature_id_constraints = {
+    "constraints"
+}
+
+feature_id_disjunction = {
+    "disjunction"
+}
+
+feature_id_functional_dependencies = {
+    "functional_dependencies"
+}
+
+// ------------------------------------------------------------------------------------------------
+// Constant definitions
+// ------------------------------------------------------------------------------------------------
+
+quoted_string = _{
+    QUOTE ~ string ~ QUOTE
+}
+
+unquoted_string = @{
+    predicate ~ ( COLON ~ identifier_relaxed )?
+}
+
+string = @{
+    string_char*
+}
+
+string_char = {
+    !( "\"" | "\\" ) ~ ANY
+    | "\\" ~ ( "\"" | "\\" | "t" )
+    | "\\" ~ ( "u" ~ LEFT_BRACE ~ ASCII_HEX_DIGIT{2,6} ~ RIGHT_BRACE )
+}
+
+number = _{
+    float | integer
+}
+
+float = @{
+    decimal ~ ("e" | "E") ~ integer
+}
+
+decimal = @{
+    integer ~ DOT ~ ASCII_DIGIT+
+}
+
+rational = @{
+    integer ~ "/" ~ rational
+}
+
+integer = @{
+    ( "+" | "-" )? ~ ASCII_DIGIT+
+}
+
+boolean = {
+    boolean_true | boolean_false
+}
+
+boolean_true = _{
+	"true"
+}
+
+boolean_false = _{
+	"false"
+}
+
+// ------------------------------------------------------------------------------------------------
+// Terminal definitions
+// ------------------------------------------------------------------------------------------------
+
+depends_on = {
+    "-->" | "⟶"
+}
+
+// LONG RIGHTWARDS ARROW
+// Unicode: U+27F6, UTF-8: E2 9F B6
+
+material_implication = _{
+    ":-" | "<-" | UC_LEFT_ARROW_FW
+}
+
+negation = {
+    EXCLAMATION | UC_LOGICAL_NOT_FW | "NOT"
+}
+
+conjunction = _{
+    COMMA | UC_LOGICAL_AND | AMPERSAND | "AND"
+}
+
+disjunction = _{
+    inclusive_disjunction
+}
+
+inclusive_disjunction = _{
+    SEMI_COLON | UC_LOGICAL_OR | VERTICAL_BAR | "OR"
+}
+
+// ----- For future use -----
+// exclusive_disjunction = _{
+//     UC_LOGICAL_XOR | "XOR"
+// }
+
+query_prefix = _{
+    "?-"
+}
+
+comparison_operator = {
+    LESS_THAN | less_or_equal | GREATER_THAN | greater_or_equal | EQUALS | not_equal | string_match
+}
+
+less_or_equal = _{
+    "<=" | UC_LTE
+}
+
+greater_or_equal = _{
+    ">=" | UC_GTE
+}
+
+not_equal = _{
+    "!=" | "/=" | UC_NOT_EQUAL
+}
+
+string_match = _{
+    "*=" | UC_STAR_EQUAL | "MATCHES"
+}
+
+UC_LOGICAL_AND = _{ "∧" }
+
+UC_LOGICAL_OR = _{ "∨" }
+
+UC_LOGICAL_XOR = _{ "⊕" }
+
+UC_LOGICAL_NOT_FW = _{ "￢" }
+
+UC_LEFT_ARROW_FW = _{ "⟵" }
+
+UC_TRUTH = _{ "⊤" }
+
+UC_FALSUM = _{ "⊥" }
+
+UC_LTE = _{ "≤" }
+
+UC_GTE = _{ "≥" }
+
+UC_NOT_EQUAL = _{ "≠" }
+
+UC_STAR_EQUAL = _{ "≛" }
+
+LEFT_PAREN = _{ "(" }
+
+RIGHT_PAREN = _{ ")" }
+
+LEFT_BRACE = _{ "{" }
+
+RIGHT_BRACE = _{ "}" }
+
+LESS_THAN = _{
+    "<"
+}
+
+GREATER_THAN = _{ ">" }
+
+EQUALS = _{ "=" }
+
+QUOTE = _{ "\"" }
+
+HYPHEN_MINUS = _{ "-" }
+
+UNDERSCORE = _{ "_" }
+
+AMPERSAND = _{ "&" }
+
+VERTICAL_BAR = _{ "|" }
+
+EXCLAMATION = _{ "!" }
+
+DOT = _{ "." }
+
+COMMA = _{ "," }
+
+QMARK = _{ "?" }
+
+COLON = _{ ":" }
+
+SEMI_COLON = _{ ";" }
+
+// ------------------------------------------------------------------------------------------------
+// Built-in rules
+// ------------------------------------------------------------------------------------------------
+
+COMMENT = _{ block_comment | line_comment }
+
+line_comment = _{ "%" ~ ( !NEWLINE ~ ANY )* }
+
+block_comment = { "/*" ~ (!"*/" ~ ANY)* ~ "*/" }
+
+WHITESPACE = _{ " " | "\t" | NEWLINE }

@@ -1,0 +1,100 @@
+@startuml
+
+!include options.plantuml
+
+interface asdi::ProgramCore
+hide "asdi::ProgramCore" members
+
+interface asdi::edb::Attribute
+hide "asdi::edb::Attribute" members
+
+interface asdi::edb::Constant
+hide "asdi::edb::Constant" members
+
+interface asdi::edb::PredicateRef
+hide "asdi::edb::PredicateRef" members
+
+enum asdi::idb::ComparisonOperator
+hide "asdi::idb::ComparisonOperator" members
+
+interface asdi::idb::query::Row
+hide "asdi::idb::query::Row" members
+
+interface asdi::idb::query::View
+hide "asdi::idb::query::View" members
+
+namespace asdi::idb::query::relational {
+    interface FactOps
+    interface RelationalOps
+
+    class RelationSource
+    class SetOperation
+    class Selection
+    class Projection
+    class Join
+    class RelationSink
+
+    class Criteria
+    enum CriteriaValue {
+        Value : asdi::edb::Constant
+        Index : usize
+    }
+
+    enum SetOperator {
+        Union
+        Intersection
+        Different
+        CartesianProduct
+    }
+
+    enum RelationalOp {
+        Relation : RelationSource
+        SetOperation : SetOperation
+        Selection : Selection
+        Projection : Projection
+        Join : Join
+        Sink : RelationSink
+    }
+
+    RelationSource o-> asdi::edb::PredicateRef
+
+    SetOperation *-> RelationalOp
+    SetOperation *-> RelationalOp
+    SetOperation *-down-> SetOperator
+
+    CriteriaValue o-down-> asdi::edb::Constant
+    Criteria *-> CriteriaValue
+    Criteria *-down-> asdi::idb::ComparisonOperator
+
+    Join *-> RelationalOp
+    Join *-> RelationalOp
+    Join *-> "*" Criteria
+
+    Projection *-> RelationalOp
+    Projection *-down-> "attributes *" asdi::edb::Attribute
+
+    Selection *-> RelationalOp
+    Selection *-> Criteria
+
+    FactOps ..> Projection
+    FactOps ..> Selection
+    FactOps .up.> asdi::idb::query::Row
+    FactOps <|.up. asdi::idb::query::Row
+
+    RelationalOps ..> Criteria
+    RelationalOps ..> Projection
+    RelationalOps ..> Selection
+    RelationalOps .up.> asdi::idb::query::View
+    RelationalOps <|.up. asdi::idb::query::View
+
+    RelationSink *-> RelationalOp
+    RelationSink *-> asdi::edb::PredicateRef
+
+    class relational << module >> {
+        program_to_graphviz(): String
+    }
+
+    relational .down.> asdi::ProgramCore
+}
+
+@enduml

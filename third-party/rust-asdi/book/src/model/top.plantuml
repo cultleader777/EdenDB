@@ -1,0 +1,28 @@
+@startuml
+
+!include options.plantuml
+
+namespace asdi {
+
+    namespace edb {
+        namespace io {
+            namespace csv {}
+            namespace json {}
+            namespace text {}
+        }
+    }
+    namespace error {}
+    namespace features {}
+    namespace idb {
+        namespace eval {
+            namespace strata {}
+        }
+        namespace query {
+            namespace relational {}
+        }
+    }
+    namespace parse {}
+    namespace visitor {}
+}
+
+@enduml

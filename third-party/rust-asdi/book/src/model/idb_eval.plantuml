@@ -1,0 +1,28 @@
+@startuml
+
+!include options.plantuml
+
+class asdi::Program
+hide "asdi::Program" members
+
+class asdi::edb::RelationSet
+hide "asdi::edb::RelationSet" members
+
+namespace asdi::idb::eval {
+    interface Evaluator {
+        inference(program: &Program) : Result<RelationSet>
+    }
+
+    class NaiveEvaluator
+    class NoopEvaluator
+    class StratifiedEvaluator
+
+    NaiveEvaluator ..|> Evaluator
+    NoopEvaluator ..|> Evaluator
+    StratifiedEvaluator ..|> Evaluator
+
+    Evaluator ..> asdi::Program
+    Evaluator ..> asdi::edb::RelationSet
+}
+
+@enduml

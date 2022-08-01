@@ -1,0 +1,11 @@
+(lang dune 2.1)
+
+(name sketch)
+
+(authors "Author Name")
+(maintainers "Maintainer Name")
+(license LICENSE)
+
+(package
+ (name sketch)
+ (depends ocaml dune))
