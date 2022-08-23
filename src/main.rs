@@ -48,6 +48,13 @@ fn main() {
         let gen_src = cgen.generate(&data);
         gen_src.dump_to_dir(oc.as_str());
     }
+
+    for sqlite in &args.sqlite_output_file {
+        let db = data.sqlite_db.ro.lock().unwrap();
+        let mut backup = rusqlite::Connection::open(&sqlite).unwrap();
+        let b = rusqlite::backup::Backup::new(&db, &mut backup).unwrap();
+        b.run_to_completion(9999999, std::time::Duration::from_secs(0), None).unwrap();
+    }
 }
 
 fn err_print(prefix: &'static str, e: &dyn std::error::Error) {

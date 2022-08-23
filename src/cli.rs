@@ -11,6 +11,10 @@ pub struct Cli {
     #[clap(long)]
     pub ocaml_output_directory: Option<String>,
 
+    /// Sqlite dump output file
+    #[clap(long)]
+    pub sqlite_output_file: Option<String>,
+
     /// Input sources to compile and check
     #[clap(required = true, min_values(1))]
     pub inputs: Vec<String>,

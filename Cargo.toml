@@ -23,7 +23,7 @@ assert-json-diff = "2.0.2"
 mlua = { version = "0.8.1", features = ["luajit", "vendored"] }
 once_cell = "1.13.0"
 asdi = { path = "third-party/rust-asdi" }
-rusqlite = { path = "third-party/rusqlite", features = ["bundled"] }
+rusqlite = { path = "third-party/rusqlite", features = ["bundled", "backup"] }
 rand = "0.8.5"
 clap = { version = "3.2.15", features = ["derive"] }
 convert_case = "0.5.0"
