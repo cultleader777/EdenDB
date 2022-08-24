@@ -50,7 +50,7 @@ pub trait CodeGenerator {
 }
 
 /// Returns raw uncompressed binary data
-fn dump_as_bytes(vecs: &Vec<SerializationVector>) -> Vec<u8> {
+pub fn dump_as_bytes(vecs: &Vec<SerializationVector>) -> Vec<u8> {
     let mut output = Vec::with_capacity(1024);
 
     for sv in vecs {
