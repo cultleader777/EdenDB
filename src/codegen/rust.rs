@@ -121,7 +121,7 @@ impl RustCodegenCompute {
         let table_definitions = table_definitions(data, &vecs);
         let database_definition = database_definition(data);
         let database_impl = database_impl(data, opt, &vecs);
-        let table_definition_impls = table_definition_impls(data);
+        let table_definition_impls = table_definition_impls(data, &vecs);
         let (data_bytes, uncompressed_data_bytes) = super::dump_as_bytes_lz4_checksum_xxh(&vecs);
         RustCodegenCompute {
             table_pointer_types,
@@ -527,7 +527,7 @@ fn database_deserialization_function(output: &mut String, data: &AllData, vecs: 
 
 }
 
-fn table_definition_impls(data: &AllData) -> Vec<String> {
+fn table_definition_impls(data: &AllData, vecs: &Vec<SerializationVector>) -> Vec<String> {
     let mut res = Vec::with_capacity(data.tables.len());
     for t in data.tables_sorted() {
         let tname_pasc_case = t.name.as_str().to_case(Case::Pascal);
@@ -573,100 +573,77 @@ fn table_definition_impls(data: &AllData) -> Vec<String> {
         output += "    }\n";
         output += "\n";
 
-        for c in &t.columns {
-            // Example: get column value by pointer from column store
-            // pub fn c_id(&self, ptr: TableRowPointerThicBoi) -> i64 {
-            //     self.c_id[ptr.0]
-            // }
 
-            match &c.key_type {
-                crate::checker::types::KeyType::ParentPrimaryKey { .. } => {
-                    // these are redundant and parents can be reached via .parent field
-                },
-                | crate::checker::types::KeyType::NotAKey
-                | crate::checker::types::KeyType::PrimaryKey
-                | crate::checker::types::KeyType::ChildPrimaryKey { .. }
-                => {
-                    output += "    pub fn c_";
-                    output += c.column_name.as_str();
-                    output += "(&self, ptr: ";
-                    output += &trow_ptr;
-                    output += ") -> ";
-                    let return_ref = match c.data.column_type() {
-                        crate::checker::types::DBType::DBText => {
-                            output += "&::std::string::String";
-                            true
-                        },
-                        crate::checker::types::DBType::DBInt => {
-                            output += "i64";
-                            false
-                        },
-                        crate::checker::types::DBType::DBFloat => {
-                            output += "f64";
-                            false
-                        },
-                        crate::checker::types::DBType::DBBool => {
-                            output += "bool";
-                            false
-                        },
-                    };
-                    output += " {\n";
-                    output += "        ";
-                    if return_ref { output += "&" }
-                    output += "self.c_";
-                    output += c.column_name.as_str();
-                    output += "[ptr.0]\n";
-                    output += "    }\n";
-                    output += "\n";
-                }
-                crate::checker::types::KeyType::ForeignKey { foreign_table } => {
-                    let foreign_tname_pasc_case = foreign_table.as_str().to_case(Case::Pascal);
-                    output += "    pub fn c_";
-                    output += c.column_name.as_str();
-                    output += "(&self, ptr: ";
-                    output += &trow_ptr;
-                    output += ") -> ";
-                    output += "TableRowPointer";
-                    output += &foreign_tname_pasc_case;
-                    output += " {\n";
-                    output += "        ";
-                    output += "self.c_";
-                    output += c.column_name.as_str();
-                    output += "[ptr.0]\n";
-                    output += "    }\n";
-                    output += "\n";
-                },
+        struct ColumnVar {
+            row_var: String,
+            raw_column_type: String,
+            return_ref: bool,
+        }
+
+        for sv in vecs {
+            if sv.table_name() == t.name.as_str() {
+                let cv = match sv {
+                    crate::checker::types::SerializationVector::StringsColumn(v) => {
+                        ColumnVar {
+                            row_var: v.column_name.to_string(),
+                            raw_column_type: "&::std::string::String".to_string(),
+                            return_ref: true,
+                        }
+                    },
+                    crate::checker::types::SerializationVector::IntsColumn(v) => {
+                        ColumnVar {
+                            row_var: v.column_name.to_string(),
+                            raw_column_type: "i64".to_string(),
+                            return_ref: false,
+                        }
+                    },
+                    crate::checker::types::SerializationVector::FloatsColumn(v) => {
+                        ColumnVar {
+                            row_var: v.column_name.to_string(),
+                            raw_column_type: "f64".to_string(),
+                            return_ref: false,
+                        }
+                    },
+                    crate::checker::types::SerializationVector::BoolsColumn(v) => {
+                        ColumnVar {
+                            row_var: v.column_name.to_string(),
+                            raw_column_type: "bool".to_string(),
+                            return_ref: false,
+                        }
+                    },
+                    crate::checker::types::SerializationVector::FkeysColumn { sv, foreign_table } => {
+                        let fkey_pascal = foreign_table.to_case(Case::Pascal);
+                        ColumnVar {
+                            row_var: sv.column_name.to_string(),
+                            raw_column_type: format!("TableRowPointer{}", fkey_pascal),
+                            return_ref: false,
+                        }
+                    },
+                    crate::checker::types::SerializationVector::FkeysOneToManyColumn { sv, foreign_table } => {
+                        let fkey_pascal = foreign_table.to_case(Case::Pascal);
+                        ColumnVar {
+                            row_var: sv.column_name.to_string(),
+                            raw_column_type: format!("&[TableRowPointer{}]", fkey_pascal),
+                            return_ref: true,
+                        }
+                    },
+                };
+
+                output += "    pub fn c_";
+                output += &cv.row_var;
+                output += "(&self, ptr: ";
+                output += &trow_ptr;
+                output += ") -> ";
+                output += &cv.raw_column_type;
+                output += " {\n";
+                output += "        ";
+                if cv.return_ref { output += "&" }
+                output += "self.c_";
+                output += cv.row_var.as_str();
+                output += "[ptr.0]\n";
+                output += "    }\n";
+                output += "\n";
             }
-        }
-
-        for maybe_parent in t.parent_table() {
-            let parent_tname_pasc_case = maybe_parent.as_str().to_case(Case::Pascal);
-            output += "    pub fn c_parent(&self, ptr: ";
-            output += &trow_ptr;
-            output += ") -> ";
-            output += "TableRowPointer";
-            output += &parent_tname_pasc_case;
-            output += " {\n";
-            output += "        self.c_parent[ptr.0]\n";
-            output += "    }\n";
-            output += "\n";
-        }
-
-        for child in data.children_tables(t) {
-            let child_tname_pasc_case = child.name.as_str().to_case(Case::Pascal);
-            output += "    pub fn c_children_";
-            output += child.name.as_str();
-            output += "(&self, ptr: ";
-            output += &trow_ptr;
-            output += ") -> ";
-            output += "&[TableRowPointer";
-            output += &child_tname_pasc_case;
-            output += "] {\n";
-            output += "        &self.c_children_";
-            output += child.name.as_str();
-            output += "[ptr.0]\n";
-            output += "    }\n";
-            output += "\n";
         }
 
         output += "}";
