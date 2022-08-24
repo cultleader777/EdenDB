@@ -15,6 +15,8 @@ pub struct RustCodegen {
     pub debug_dump_function: bool,
     pub edb_data_file_name: String,
     pub db_source_file_name: String,
+    // for testing, undocumented
+    pub expose_deserialization_function: bool,
 }
 
 impl Default for RustCodegen {
@@ -23,6 +25,7 @@ impl Default for RustCodegen {
             debug_dump_function: false,
             edb_data_file_name: "edb_data.bin".to_string(),
             db_source_file_name: "database.rs".to_string(),
+            expose_deserialization_function: false,
         }
     }
 }
@@ -35,7 +38,7 @@ impl CodeGenerator for RustCodegen {
         content += r#"// Test db content
 const DB_BYTES: &[u8] = include_bytes!("edb_data.bin");
 lazy_static!{
-    pub static ref DB: Database = Database::deserialize(DB_BYTES).unwrap();
+    pub static ref DB: Database = Database::deserialize_compressed(DB_BYTES).unwrap();
 }
 "#;
         content += "\n";
@@ -275,7 +278,7 @@ fn database_impl(data: &AllData, opt: &RustCodegen, vecs: &Vec<SerializationVect
     }
 
     // database deserialization function
-    database_deserialization_function(&mut res, data, vecs);
+    database_deserialization_function(&mut res, data, vecs, opt.expose_deserialization_function);
     if opt.debug_dump_function {
         database_dump_function(&mut res, data);
     }
@@ -306,8 +309,8 @@ fn database_dump_function(output: &mut String, data: &AllData) {
     output.push_str("\n");
 }
 
-fn database_deserialization_function(output: &mut String, data: &AllData, vecs: &Vec<SerializationVector>) {
-    output.push_str("    pub fn deserialize(compressed: &[u8]) -> Result<Database, Box<dyn ::std::error::Error>> {\n");
+fn database_deserialization_function(output: &mut String, data: &AllData, vecs: &Vec<SerializationVector>, expose: bool) {
+    output.push_str("    fn deserialize_compressed(compressed: &[u8]) -> Result<Database, Box<dyn ::std::error::Error>> {\n");
     output.push_str("        let hash_size = ::std::mem::size_of::<u64>();\n");
     output.push_str("        assert!(compressed.len() > hash_size);\n");
     output.push_str("        let compressed_end = compressed.len() - hash_size;\n");
@@ -317,7 +320,13 @@ fn database_deserialization_function(output: &mut String, data: &AllData, vecs: 
     output.push_str("        let computed_hash = ::xxhash_rust::xxh3::xxh3_64(compressed_slice);\n");
     output.push_str("        if encoded_hash != computed_hash { panic!(\"EdenDB data is corrupted, checksum mismatch.\") }\n");
     output.push_str("        let input = ::lz4_flex::decompress_size_prepended(compressed_slice).unwrap();\n");
-    output.push_str("        let mut cursor = ::std::io::Cursor::new(input.as_slice());\n");
+    output.push_str("        Self::deserialize(input.as_slice())\n");
+    output.push_str("    }\n");
+    output.push_str("\n");
+    output.push_str("    ");
+    if expose { output.push_str("pub ") };
+    output.push_str("fn deserialize(input: &[u8]) -> Result<Database, Box<dyn ::std::error::Error>> {\n");
+    output.push_str("        let mut cursor = ::std::io::Cursor::new(input);\n");
     output.push_str("\n");
 
     struct ColumnVar<'a> {
@@ -480,6 +489,8 @@ fn database_deserialization_function(output: &mut String, data: &AllData, vecs: 
         }
     }
 
+    output.push_str("\n");
+    output.push_str("        assert_eq!(cursor.position() as usize, input.len());\n");
     output.push_str("\n");
     output.push_str("        Ok(Database {\n");
 

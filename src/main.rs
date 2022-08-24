@@ -38,7 +38,8 @@ fn main() {
     let data = data.unwrap();
 
     for rt in &args.rust_output_directory {
-        let cgen = codegen::rust::RustCodegen::default();
+        let mut cgen = codegen::rust::RustCodegen::default();
+        cgen.expose_deserialization_function = std::env::var("EDB_EXPOSE_DESER").is_ok();
         let gen_src = cgen.generate(&data);
         gen_src.dump_to_dir(rt.as_str());
     }
