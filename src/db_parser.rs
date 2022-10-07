@@ -14,6 +14,7 @@ pub struct TableColumn {
     pub name: String,
     pub the_type: String,
     pub is_reference_to_other_table: bool,
+    pub is_reference_to_child_table: bool,
     pub is_primary_key: bool,
     pub child_primary_key: Option<String>,
     pub default_expression: Option<String>,
@@ -598,7 +599,7 @@ fn parse_table_column(input: &str) -> IResult<&str, TableRowReturn> {
     let (tail, (column_name, _, is_ref, column_type, maybe_default, is_generated, is_primary_key)) = tuple((
         valid_table_or_column_name,
         multispace1,
-        opt(tuple((tag("REF"), multispace1))),
+        opt(tuple((tag("REF"), multispace1, opt(tuple((tag("CHILD"), multispace1)))))),
         valid_table_or_column_name,
         opt(tuple((multispace1, tag("DEFAULT"), multispace1, parse_table_data_point))),
         opt(
@@ -627,6 +628,7 @@ fn parse_table_column(input: &str) -> IResult<&str, TableRowReturn> {
         name: column_name.to_owned(),
         the_type: column_type.to_owned(),
         is_reference_to_other_table: is_ref.is_some(),
+        is_reference_to_child_table: is_ref.map(|(_, _, child)| child.is_some()).unwrap_or(false),
         is_primary_key: is_pkey,
         child_primary_key: maybe_child_prim_key,
         generated_expression: maybe_generated,
@@ -1230,6 +1232,7 @@ fn test_parse_uniq_constraint_table() {
     assert_eq!(td.columns[0].the_type, "TEXT");
     assert_eq!(td.columns[0].is_primary_key, false);
     assert_eq!(td.columns[0].is_reference_to_other_table, false);
+    assert_eq!(td.columns[0].is_reference_to_child_table, false);
     assert_eq!(td.columns[0].default_expression, None);
 
     assert_eq!(td.columns[1].name, "ipv4");

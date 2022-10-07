@@ -73,6 +73,40 @@ pub enum DatabaseValidationError {
         referrer_column: String,
         referred_table: String,
     },
+    ForeignChildKeyTableDoesntHaveParentTable {
+        referrer_table: String,
+        referrer_column: String,
+        referred_table: String,
+    },
+    ForeignChildKeyTableIsHigherOrEqualInAncestryThanTheReferrer {
+        referrer_table: String,
+        referrer_column: String,
+        referred_table: String,
+    },
+    ForeignChildKeyTableIntegerKeyMustBeNonNegative {
+        referred_table: String,
+        offending_column: String,
+        offending_value: i64,
+    },
+    ForeignChildKeyTableStringMustBeSnakeCase {
+        referred_table: String,
+        offending_column: String,
+        offending_value: String,
+    },
+    ForeignChildKeyReferrerHasIncorrectSegmentsInCompositeKey {
+        referrer_table: String,
+        referrer_column: String,
+        referee_table: String,
+        expected_segments: usize,
+        actual_segments: usize,
+        offending_value: String,
+    },
+    ForeignChildKeyReferrerCannotHaveWhitespaceInSegments {
+        referrer_table: String,
+        referrer_column: String,
+        referee_table: String,
+        offending_value: String,
+    },
     ForeignKeyTableDoesNotShareCommonAncestorWithRefereeTable {
         referrer_table: String,
         referrer_column: String,

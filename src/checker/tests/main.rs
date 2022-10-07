@@ -94,7 +94,8 @@ DATA servers(hostname, region) {
             assert_eq!(
                 servers_region.key_type,
                 KeyType::ForeignKey {
-                    foreign_table: DBIdentifier::new("regions").unwrap()
+                    foreign_table: DBIdentifier::new("regions").unwrap(),
+                    is_to_child_table: false,
                 }
             );
             assert!(!servers_region.data.has_default_value());
@@ -223,7 +224,8 @@ DATA regions {
             assert_eq!(
                 servers_region.key_type,
                 KeyType::ForeignKey {
-                    foreign_table: DBIdentifier::new("regions").unwrap()
+                    foreign_table: DBIdentifier::new("regions").unwrap(),
+                    is_to_child_table: false,
                 }
             );
             assert!(!servers_region.data.has_default_value());

@@ -269,3 +269,8 @@ DONE: find common ancestor for keys, not just first ref parent
 
 DONE: pin directory for context to source reader.
 If file next to current source file exists, use that.
+
+* 2022-10-06
+
+DONE: fix remaining tests
+DONE: success tests

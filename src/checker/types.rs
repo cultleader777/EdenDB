@@ -24,7 +24,16 @@ pub enum KeyType {
     PrimaryKey,
     ChildPrimaryKey { parent_table: DBIdentifier },
     ParentPrimaryKey { parent_table: DBIdentifier },
-    ForeignKey { foreign_table: DBIdentifier },
+    ForeignKey { foreign_table: DBIdentifier, is_to_child_table: bool },
+}
+
+impl KeyType {
+    pub fn is_fkey_to_table(&self, table: &DBIdentifier) -> bool {
+        match self {
+            KeyType::ForeignKey { foreign_table, .. } => foreign_table == table,
+            _ => false
+        }
+    }
 }
 
 #[derive(PartialEq, Eq, Debug, Clone, Copy)]
@@ -40,6 +49,7 @@ pub struct DataColumn {
     pub data: ColumnVector,
     pub key_type: KeyType,
     pub generate_expression: Option<String>,
+    pub is_snake_case_restricted: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -335,9 +345,6 @@ impl DataTable {
     }
 
     pub fn determine_nested_insertion_mode(&self, child_table: &DataTable) -> NestedInsertionMode {
-        let main_table_foreign_key = KeyType::ForeignKey {
-            foreign_table: self.name.clone(),
-        };
         let main_table_parent_key = KeyType::ParentPrimaryKey {
             parent_table: self.name.clone(),
         };
@@ -348,7 +355,7 @@ impl DataTable {
                 .iter()
                 .enumerate()
                 .filter_map(|(idx, i)| {
-                    if i.key_type == main_table_foreign_key
+                    if i.key_type.is_fkey_to_table(&self.name)
                         || i.key_type == main_table_parent_key
                     {
                         Some(idx)
