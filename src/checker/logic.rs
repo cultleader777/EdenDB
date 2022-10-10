@@ -3187,7 +3187,7 @@ fn validate_child_foreign_keys(res: &mut AllData) -> Result<(), DatabaseValidati
             }
             this_explicit_key.push(res.tables[referred_idx].primary_key_column().unwrap().column_name.clone());
 
-            if parent_tables_of_referrer_table.len() >= parent_tables_of_referee.len() {
+            if !common_parent_keys.is_empty() && parent_tables_of_referrer_table.len() >= parent_tables_of_referee.len() {
                 return Err(
                     DatabaseValidationError::ForeignChildKeyTableIsHigherOrEqualInAncestryThanTheReferrer {
                         referrer_table: referee_name.as_str().to_string(),

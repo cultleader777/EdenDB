@@ -551,3 +551,61 @@ DATA existant_parent {
         "#
     );
 }
+
+#[test]
+fn test_child_inner_foreign_key_can_refer_to_unrelated_child_from_deeper() {
+    assert_compiles_data(
+        r#"
+TABLE existant_parent {
+    some_key TEXT PRIMARY KEY,
+}
+
+TABLE existant_child {
+    some_child_key TEXT PRIMARY KEY CHILD OF existant_parent,
+}
+
+TABLE good_ref_parent_1 {
+    p1 TEXT PRIMARY KEY,
+}
+TABLE good_ref_parent_2 {
+    p2 TEXT PRIMARY KEY CHILD OF good_ref_parent_1,
+}
+
+TABLE good_ref {
+    p3 TEXT PRIMARY KEY CHILD OF good_ref_parent_2,
+    ref_key REF CHILD existant_child,
+}
+
+DATA existant_parent {
+    outer_val WITH existant_child {
+        inner_val
+    }
+}
+
+DATA good_ref_parent_1 {
+    k1 WITH good_ref_parent_2 {
+        k2 WITH good_ref {
+            k3, outer_val->inner_val
+        }
+    }
+}
+        "#,
+        json!({
+            "existant_parent":[
+                {"some_key":"outer_val"},
+            ],
+            "existant_child":[
+                {"some_key":"outer_val", "some_child_key": "inner_val"},
+            ],
+            "good_ref_parent_1":[
+                {"p1": "k1"}
+            ],
+            "good_ref_parent_2":[
+                {"p1": "k1", "p2": "k2"}
+            ],
+            "good_ref":[
+                {"p1": "k1", "p2": "k2", "p3": "k3", "ref_key": "outer_val->inner_val"}
+            ],
+        })
+    );
+}
