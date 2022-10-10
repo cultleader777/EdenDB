@@ -490,7 +490,7 @@ DATA existant_parent {
 }
 
 DATA good_ref {
-    "outer_val->inner_val"
+    outer_val->inner_val
 }
         "#,
         json!({
