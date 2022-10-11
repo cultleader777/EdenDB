@@ -141,7 +141,7 @@ fn table_pointer_types(data: &AllData) -> Vec<String> {
     for t in data.tables_sorted() {
         let tname_pasc_case = t.name.as_str().to_case(Case::Pascal);
         let mut output = String::new();
-        output += "#[derive(Copy, Clone, Debug, serde::Deserialize, PartialEq)]\n";
+        output += "#[derive(Copy, Clone, Debug, serde::Deserialize, PartialEq, ::std::hash::Hash)]\n";
         output += &format!("pub struct TableRowPointer{}(usize);", tname_pasc_case);
         res.push(output);
     }
