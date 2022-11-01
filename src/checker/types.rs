@@ -24,16 +24,12 @@ pub enum KeyType {
     PrimaryKey,
     ChildPrimaryKey { parent_table: DBIdentifier },
     ParentPrimaryKey { parent_table: DBIdentifier },
-    ForeignKey { foreign_table: DBIdentifier, is_to_child_table: bool },
 }
 
-impl KeyType {
-    pub fn is_fkey_to_table(&self, table: &DBIdentifier) -> bool {
-        match self {
-            KeyType::ForeignKey { foreign_table, .. } => foreign_table == table,
-            _ => false
-        }
-    }
+#[derive(PartialEq, Eq, Debug)]
+pub struct ForeignKey {
+    pub foreign_table: DBIdentifier,
+    pub is_to_child_table: bool,
 }
 
 #[derive(PartialEq, Eq, Debug, Clone, Copy)]
@@ -48,6 +44,7 @@ pub struct DataColumn {
     pub column_name: DBIdentifier,
     pub data: ColumnVector,
     pub key_type: KeyType,
+    pub maybe_foreign_key: Option<ForeignKey>,
     pub generate_expression: Option<String>,
     pub is_snake_case_restricted: bool,
 }
@@ -355,7 +352,7 @@ impl DataTable {
                 .iter()
                 .enumerate()
                 .filter_map(|(idx, i)| {
-                    if i.key_type.is_fkey_to_table(&self.name)
+                    if i.is_fkey_to_table(&self.name)
                         || i.key_type == main_table_parent_key
                     {
                         Some(idx)
@@ -368,8 +365,11 @@ impl DataTable {
         let mut foreign_keys = Vec::new();
         let mut parent_pkey = Vec::new();
         for i in references.iter() {
+            if child_table.columns[*i].maybe_foreign_key.is_some() {
+                foreign_keys.push(*i);
+            }
+
             match &child_table.columns[*i].key_type {
-                KeyType::ForeignKey { .. } => foreign_keys.push(*i),
                 KeyType::ParentPrimaryKey { .. } => parent_pkey.push(*i),
                 _ => {}
             }
@@ -444,22 +444,32 @@ impl DataTable {
 }
 
 impl DataColumn {
+    pub fn is_fkey_to_table(&self, dbi: &DBIdentifier) -> bool {
+        for i in &self.maybe_foreign_key {
+            return &i.foreign_table == dbi;
+        }
+
+        return false;
+    }
+
     pub fn column_priority(&self) -> i32 {
         match &self.key_type {
             KeyType::PrimaryKey => 1,
             KeyType::ParentPrimaryKey { .. } => 2,
             KeyType::ChildPrimaryKey { .. } => 3,
-            KeyType::ForeignKey { .. } => 10,
             KeyType::NotAKey => 10,
         }
     }
 
     pub fn is_required(&self) -> bool {
+        if self.maybe_foreign_key.is_some() {
+            return true;
+        }
+
         match &self.key_type {
             KeyType::PrimaryKey => true,
             KeyType::ParentPrimaryKey { .. } => true,
             KeyType::ChildPrimaryKey { .. } => true,
-            KeyType::ForeignKey { .. } => true,
             KeyType::NotAKey => {
                 !self.data.has_default_value() && self.generate_expression.is_none()
             },

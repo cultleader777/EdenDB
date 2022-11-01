@@ -20,10 +20,6 @@ pub enum DatabaseValidationError {
         column_name: String,
         reserved_names: Vec<String>,
     },
-    ColumnIsPrimaryKeyAndForeignKey {
-        table_name: String,
-        column_name: String,
-    },
     DuplicateColumnNames {
         table_name: String,
         column_name: String,

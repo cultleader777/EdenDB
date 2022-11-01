@@ -298,3 +298,88 @@ DATA server {
         ],
     }));
 }
+
+
+#[test]
+fn test_regression_3() {
+    assert_compiles_data(r#"
+TABLE application_language {
+    name TEXT PRIMARY KEY,
+}
+
+TABLE application {
+    application_name TEXT PRIMARY KEY,
+    language REF application_language,
+}
+
+TABLE http_endpoint {
+    http_endpoint_name TEXT PRIMARY KEY CHILD OF application,
+    path TEXT, // inline arguments encoded
+    method REF http_methods,
+    input_body_type TEXT DEFAULT '',
+    output_body_type TEXT DEFAULT '',
+    data_type REF http_endpoint_data_type,
+}
+
+TABLE http_methods {
+    http_method_name TEXT PRIMARY KEY,
+}
+
+DATA EXCLUSIVE http_methods {
+    GET;
+    POST;
+    PUT;
+}
+
+TABLE http_endpoint_data_type {
+    http_endpoint_data_type TEXT PRIMARY KEY,
+}
+
+DATA EXCLUSIVE http_endpoint_data_type {
+    json;
+    html;
+}
+
+DATA EXCLUSIVE application_language {
+    rust;
+    ocaml;
+}
+
+
+// app data causes boo boo
+DATA STRUCT application [
+  {
+    application_name: hello_world,
+    language: rust,
+    WITH http_endpoint [
+      {
+        http_endpoint_name: primary,
+        data_type: json,
+        path: '/henlo/boi?hey?yo',
+        method: GET,
+      }
+    ]
+  }
+]
+"#, json!({
+        "application": [
+            {"application_name": "hello_world", "language": "rust"},
+        ],
+        "application_language": [
+            {"name": "rust"},
+            {"name": "ocaml"},
+        ],
+        "http_endpoint": [
+            {"application_name": "hello_world", "http_endpoint_name": "primary", "data_type": "json", "path": "/henlo/boi?hey?yo", "method": "GET", "input_body_type": "", "output_body_type": ""}
+        ],
+        "http_endpoint_data_type": [
+            {"http_endpoint_data_type": "json"},
+            {"http_endpoint_data_type": "html"},
+        ],
+        "http_methods": [
+            {"http_method_name": "GET"},
+            {"http_method_name": "POST"},
+            {"http_method_name": "PUT"},
+        ],
+    }));
+}

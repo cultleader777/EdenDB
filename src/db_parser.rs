@@ -752,13 +752,22 @@ fn valid_unquoted_data_segment(input: &str) -> IResult<&str, &str> {
 
 fn parse_quoted_text(input: &str) -> IResult<&str, &str> {
     let (tail, res) =
-        delimited(
-            char('\"'),
-            cut(
-        escaped(many0(none_of("\"")), '\\', one_of("\"\\")),
+        alt((
+            delimited(
+                char('\"'),
+                cut(
+            escaped(many0(none_of("\"")), '\\', one_of("\"\\")),
+                ),
+                char('\"')
             ),
-            char('\"')
-        ).parse(input)?;
+            delimited(
+                char('\''),
+                cut(
+            escaped(many0(none_of("\'")), '\\', one_of("\'\\")),
+                ),
+                char('\'')
+            ),
+        )).parse(input)?;
 
     Ok((tail, res))
 }

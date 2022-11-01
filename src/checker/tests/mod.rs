@@ -12,3 +12,4 @@ mod struct_statement;
 mod integration;
 mod common_parent_fkeys;
 mod child_foreign_keys;
+mod child_keys_and_foreign_keys;

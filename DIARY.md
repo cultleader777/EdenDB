@@ -240,7 +240,7 @@ DONE: foreign keys for child tables work
 DONE: added foreign keys to child elements index
 DONE: add index of child elements to foreign key elements
 DONE: binary test for child elements index
-TODO: fix regressions
+DONE: fix regressions
 
 * 2022-08-10
 
@@ -274,3 +274,7 @@ If file next to current source file exists, use that.
 
 DONE: fix remaining tests
 DONE: success tests
+
+* 2022-10-26
+
+DONE: single quotes same as double quotes

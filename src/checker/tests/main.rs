@@ -92,11 +92,11 @@ DATA servers(hostname, region) {
             assert_eq!(servers_region.column_name.as_str(), "region");
             assert_eq!(servers_region.data.column_type(), DBType::DBText);
             assert_eq!(
-                servers_region.key_type,
-                KeyType::ForeignKey {
+                servers_region.maybe_foreign_key,
+                Some(crate::checker::types::ForeignKey {
                     foreign_table: DBIdentifier::new("regions").unwrap(),
                     is_to_child_table: false,
-                }
+                })
             );
             assert!(!servers_region.data.has_default_value());
 
@@ -222,11 +222,11 @@ DATA regions {
             assert_eq!(servers_region.column_name.as_str(), "region");
             assert_eq!(servers_region.data.column_type(), DBType::DBText);
             assert_eq!(
-                servers_region.key_type,
-                KeyType::ForeignKey {
+                servers_region.maybe_foreign_key,
+                Some(crate::checker::types::ForeignKey {
                     foreign_table: DBIdentifier::new("regions").unwrap(),
                     is_to_child_table: false,
-                }
+                })
             );
             assert!(!servers_region.data.has_default_value());
 
@@ -310,21 +310,6 @@ fn test_validation_exception_lowercase_column_name() {
         r#"
 TABLE cholo {
     iD INT,
-}
-        "#,
-    );
-}
-
-#[test]
-fn test_validation_exception_pkey_and_foreign_key_column() {
-    assert_test_validaton_exception(
-        DatabaseValidationError::ColumnIsPrimaryKeyAndForeignKey {
-            table_name: "cholo".to_string(),
-            column_name: "id".to_string(),
-        },
-        r#"
-TABLE cholo {
-    id REF some_table PRIMARY KEY,
 }
         "#,
     );
