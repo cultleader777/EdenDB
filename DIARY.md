@@ -278,3 +278,10 @@ DONE: success tests
 * 2022-10-26
 
 DONE: single quotes same as double quotes
+
+* 2022-11-19
+
+DONE: REF FOREIGN CHILD and REF CHILD.
+
+Foreign child is when referring to the foreign child by the parent.
+REF CHILD is when referring to your own child.

@@ -87,7 +87,7 @@ TABLE existant_child_2 {
 }
 
 TABLE good_ref {
-    ref_key REF CHILD existant_child_2 PRIMARY KEY CHILD OF existant_parent,
+    ref_key REF FOREIGN CHILD existant_child_2 PRIMARY KEY CHILD OF existant_parent,
 }
 
 DATA existant_parent {

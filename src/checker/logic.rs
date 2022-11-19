@@ -37,7 +37,14 @@ pub struct ForeignKeyRelationship {
 }
 
 #[derive(Hash, PartialEq, Eq)]
-pub struct ForeignKeyToChildRelationship {
+pub struct ForeignKeyToForeignChildRelationship {
+    pub referred_table: DBIdentifier,
+    pub referee_table: DBIdentifier,
+    pub referee_column: DBIdentifier,
+}
+
+#[derive(Hash, PartialEq, Eq)]
+pub struct ForeignKeyToNativeChildRelationship {
     pub referred_table: DBIdentifier,
     pub referee_table: DBIdentifier,
     pub referee_column: DBIdentifier,
@@ -54,9 +61,14 @@ pub struct ForeignKeyRelationshipData {
     pub reverse_referrees_data: Vec<Vec<usize>>,
 }
 
-pub struct ForeignKeyToChildRelationshipData {
+pub struct ForeignKeyToForeignChildRelationshipData {
     pub refereed_columns_by_key: Vec<DBIdentifier>,
     pub common_parent_keys: Vec<DBIdentifier>,
+}
+
+pub struct ForeignKeyToNativeChildRelationshipData {
+    pub refereed_columns_by_key: Vec<DBIdentifier>,
+    pub common_keys: Vec<DBIdentifier>,
 }
 
 pub struct ParentKeyRelationshipData {
@@ -67,7 +79,8 @@ pub struct ParentKeyRelationshipData {
 pub struct AllData {
     pub(crate) tables: Vec<DataTable>,
     pub(crate) foreign_keys_map: HashMap<ForeignKeyRelationship, ForeignKeyRelationshipData>,
-    pub(crate) foreign_child_keys_map: HashMap<ForeignKeyToChildRelationship, ForeignKeyToChildRelationshipData>,
+    pub(crate) foreign_to_foreign_child_keys_map: HashMap<ForeignKeyToForeignChildRelationship, ForeignKeyToForeignChildRelationshipData>,
+    pub(crate) foreign_to_native_child_keys_map: HashMap<ForeignKeyToNativeChildRelationship, ForeignKeyToNativeChildRelationshipData>,
     pub(crate) parent_child_keys_map: HashMap<ParentKeyRelationship, ParentKeyRelationshipData>,
     pub(crate) lua_runtime: Lazy<Mutex<mlua::Lua>>,
     pub(crate) sqlite_db: Lazy<SqliteDBs>,
@@ -79,7 +92,8 @@ impl AllData {
         AllData {
             tables: vec![],
             foreign_keys_map: HashMap::new(),
-            foreign_child_keys_map: HashMap::new(),
+            foreign_to_foreign_child_keys_map: HashMap::new(),
+            foreign_to_native_child_keys_map: HashMap::new(),
             parent_child_keys_map: HashMap::new(),
             lua_runtime: Lazy::new(|| Mutex::new(mlua::Lua::new())),
             sqlite_db: Lazy::new(|| {
@@ -1651,15 +1665,61 @@ fn ensure_child_foreign_keys_are_restricted(res: &AllData) -> Result<(), Databas
                 }
             }
 
-            if let Some(ForeignKey { foreign_table, is_to_child_table }) = &column.maybe_foreign_key {
-                if *is_to_child_table {
-                    let key = ForeignKeyToChildRelationship {
+            if let Some(ForeignKey { foreign_table, is_to_foreign_child_table, is_to_self_child_table }) = &column.maybe_foreign_key {
+                if *is_to_foreign_child_table {
+                    let key = ForeignKeyToForeignChildRelationship {
                         referred_table: foreign_table.clone(),
                         referee_table: table.name.clone(),
                         referee_column: column.column_name.clone(),
                     };
 
-                    let v = res.foreign_child_keys_map.get(&key).expect("We must have inserted this");
+                    let v = res.foreign_to_foreign_child_keys_map.get(&key).expect("We must have inserted this");
+                    let expected_segments = v.refereed_columns_by_key.len();
+
+                    // if this is special case that segments are skipped then
+                    // it means we want to refer to the child
+
+                    if let ColumnVector::Strings(sv) = &column.data {
+                        for i in &sv.v {
+                            let mut actual_segments = 0;
+                            for spl in i.split("->") {
+                                actual_segments += 1;
+                                if spl.trim().len() != spl.len() {
+                                    return Err(
+                                        DatabaseValidationError::ForeignChildKeyReferrerCannotHaveWhitespaceInSegments {
+                                            referrer_table: table.name.as_str().to_string(),
+                                            referrer_column: column.column_name.as_str().to_string(),
+                                            referee_table: foreign_table.as_str().to_string(),
+                                            offending_value: i.clone(),
+                                        },
+                                    )
+                                }
+                            }
+
+                            if actual_segments != expected_segments {
+                                return Err(
+                                    DatabaseValidationError::ForeignChildKeyReferrerHasIncorrectSegmentsInCompositeKey {
+                                        referrer_table: table.name.as_str().to_string(),
+                                        referrer_column: column.column_name.as_str().to_string(),
+                                        referee_table: foreign_table.as_str().to_string(),
+                                        expected_segments,
+                                        actual_segments,
+                                        offending_value: i.clone(),
+                                    },
+                                )
+                            }
+                        }
+                    } else {
+                        panic!("Only strings can be composite keys");
+                    }
+                } else if *is_to_self_child_table {
+                    let key = ForeignKeyToNativeChildRelationship {
+                        referred_table: foreign_table.clone(),
+                        referee_table: table.name.clone(),
+                        referee_column: column.column_name.clone(),
+                    };
+
+                    let v = res.foreign_to_native_child_keys_map.get(&key).expect("We must have inserted this");
                     let expected_segments = v.refereed_columns_by_key.len();
 
                     if let ColumnVector::Strings(sv) = &column.data {
@@ -1904,9 +1964,9 @@ fn ensure_child_primary_keys_unique_per_table_and_fkeys_exist(
                 for fk_table in &res.tables {
                     if fk_table.name != t.name {
                         for fk_column in &fk_table.columns {
-                            if let Some(ForeignKey { foreign_table, is_to_child_table }) = &fk_column.maybe_foreign_key {
+                            if let Some(ForeignKey { foreign_table, is_to_foreign_child_table, is_to_self_child_table }) = &fk_column.maybe_foreign_key {
                                 if foreign_table.as_str() == t.name.as_str() {
-                                    if !is_to_child_table {
+                                    if !is_to_foreign_child_table && !is_to_self_child_table {
                                         // bingo, found it, initialize the child vec if not yet done
                                         let mut parent_table_names = Vec::new();
                                         let mut parent_table_colums = Vec::new();
@@ -2100,14 +2160,184 @@ fn ensure_child_primary_keys_unique_per_table_and_fkeys_exist(
 
                                         let in_res = res.foreign_keys_map.insert(rel, data);
                                         assert!(in_res.is_none());
-                                    } else {
-                                        let rel_key = ForeignKeyToChildRelationship {
+                                    } else if *is_to_self_child_table {
+                                        let rel_key = ForeignKeyToNativeChildRelationship {
                                             referred_table: t.name.clone(),
                                             referee_table: fk_table.name.clone(),
                                             referee_column: fk_column.column_name.clone(),
                                         };
 
-                                        let data = res.foreign_child_keys_map.get(&rel_key).unwrap();
+                                        let data = res.foreign_to_native_child_keys_map.get(&rel_key).unwrap();
+                                        let mut buckets_referee: HashMap<Vec<String>, HashMap<String, usize>> = HashMap::new();
+
+                                        let mut common_keys_set = HashSet::new();
+                                        for i in &data.common_keys {
+                                            let _ = common_keys_set.insert(i.clone());
+                                        }
+                                        let mut segments_keys_set = HashSet::new();
+                                        for i in &data.refereed_columns_by_key {
+                                            let _ = segments_keys_set.insert(i.clone());
+                                        }
+
+                                        let mut referee_parent_keys: Vec<Vec<String>> = Vec::with_capacity(t.len());
+                                        let mut referee_segment_keys: Vec<Vec<String>> = Vec::with_capacity(t.len());
+                                        for _ in 0..t.len() {
+                                            referee_parent_keys.push(Vec::with_capacity(data.common_keys.len()));
+                                            referee_segment_keys.push(Vec::with_capacity(data.refereed_columns_by_key.len()));
+                                        }
+
+                                        let mut parent_table_names = Vec::with_capacity(data.common_keys.len());
+                                        for column in &t.columns {
+                                            if common_keys_set.contains(&column.column_name) {
+                                                match &column.data {
+                                                    ColumnVector::Strings(sv) => {
+                                                        for i in 0..sv.v.len() {
+                                                            referee_parent_keys[i].push(sv.v[i].clone());
+                                                        }
+                                                    },
+                                                    ColumnVector::Ints(iv) => {
+                                                        for i in 0..iv.v.len() {
+                                                            referee_parent_keys[i].push(iv.v[i].to_string());
+                                                        }
+                                                    },
+                                                    ColumnVector::Floats(_) => { panic!("Floats cannot be primary keys") },
+                                                    ColumnVector::Bools(_) => { panic!("Bools cannot be primary keys") },
+                                                }
+
+                                                match &column.key_type {
+                                                    KeyType::ParentPrimaryKey { parent_table } => {
+                                                        parent_table_names.push(parent_table.clone());
+                                                    },
+                                                    _ => {},
+                                                }
+                                            } else if segments_keys_set.contains(&column.column_name) {
+                                                match &column.data {
+                                                    ColumnVector::Strings(sv) => {
+                                                        for i in 0..sv.v.len() {
+                                                            referee_segment_keys[i].push(sv.v[i].clone());
+                                                        }
+                                                    },
+                                                    ColumnVector::Ints(iv) => {
+                                                        for i in 0..iv.v.len() {
+                                                            referee_segment_keys[i].push(iv.v[i].to_string());
+                                                        }
+                                                    },
+                                                    ColumnVector::Floats(_) => { panic!("Floats cannot be primary keys") },
+                                                    ColumnVector::Bools(_) => { panic!("Bools cannot be primary keys") },
+                                                }
+                                            }
+                                        }
+
+                                        for (idx, k) in referee_parent_keys.into_iter().enumerate() {
+                                            let e = buckets_referee.entry(k).or_insert_with(|| HashMap::new());
+                                            let joined_key = referee_segment_keys[idx].join("->");
+                                            let res = e.insert(joined_key, idx);
+                                            // should all be unique at this point, earlier unique child checks should have triggered
+                                            assert!(res.is_none());
+                                        }
+
+                                        let mut referrer_parent_keys: Vec<Vec<String>> = Vec::with_capacity(fk_table.len());
+                                        let mut referrer_to_fk_keys: Vec<String> = Vec::with_capacity(fk_table.len());
+                                        for _ in 0..fk_table.len() {
+                                            referrer_parent_keys.push(Vec::with_capacity(data.common_keys.len()));
+                                        }
+
+                                        for column in &fk_table.columns {
+                                            if common_keys_set.contains(&column.column_name) {
+                                                match &column.data {
+                                                    ColumnVector::Strings(sv) => {
+                                                        for i in 0..sv.v.len() {
+                                                            referrer_parent_keys[i].push(sv.v[i].clone());
+                                                        }
+                                                    },
+                                                    ColumnVector::Ints(iv) => {
+                                                        for i in 0..iv.v.len() {
+                                                            referrer_parent_keys[i].push(iv.v[i].to_string());
+                                                        }
+                                                    },
+                                                    ColumnVector::Floats(_) => { panic!("Floats cannot be primary keys") },
+                                                    ColumnVector::Bools(_) => { panic!("Bools cannot be primary keys") },
+                                                }
+                                            } else if column.column_name == fk_column.column_name {
+                                                match &column.data {
+                                                    ColumnVector::Strings(sv) => {
+                                                        for i in &sv.v {
+                                                            referrer_to_fk_keys.push(i.clone());
+                                                        }
+                                                    },
+                                                    ColumnVector::Ints(_) => { panic!("Ints cannot be primary keys") },
+                                                    ColumnVector::Floats(_) => { panic!("Floats cannot be primary keys") },
+                                                    ColumnVector::Bools(_) => { panic!("Bools cannot be primary keys") },
+                                                }
+                                            }
+                                        }
+
+
+                                        let mut fkeys_vector = Vec::with_capacity(fk_table.len());
+                                        let mut reverse_ref_vector: Vec<Vec<usize>> = Vec::with_capacity(t.len());
+                                        for _ in 0..t.len() {
+                                            reverse_ref_vector.push(Vec::new());
+                                        }
+                                        for row in 0..referrer_to_fk_keys.len() {
+                                            let res = buckets_referee.get(&referrer_parent_keys[row]);
+                                            match res {
+                                                Some(hmap) => {
+                                                    match hmap.get(&referrer_to_fk_keys[row]) {
+                                                        Some(idx) => {
+                                                            fkeys_vector.push(*idx);
+                                                            reverse_ref_vector[*idx].push(row);
+                                                        },
+                                                        None => {
+                                                            return Err(DatabaseValidationError::NonExistingParentToChildKey {
+                                                                table_parent_keys: referrer_parent_keys[row].clone(),
+                                                                table_parent_tables: parent_table_names.iter().map(|i| i.as_str().to_string()).collect(),
+                                                                table_parent_columns: data.common_keys.iter().map(|i| i.as_str().to_string()).collect(),
+                                                                table_with_foreign_key: fk_table.name.as_str().to_string(),
+                                                                foreign_key_column: fk_column.column_name.as_str().to_string(),
+                                                                referred_table: t.name.as_str().to_string(),
+                                                                referred_table_column: data.refereed_columns_by_key.iter().map(|i| i.as_str().to_string()).collect::<Vec<_>>().join("->"),
+                                                                key_value: referrer_to_fk_keys[row].clone(),
+                                                            });
+                                                        },
+                                                    }
+                                                },
+                                                None => {
+                                                    return Err(DatabaseValidationError::NonExistingParentToChildKey {
+                                                        table_parent_keys: referrer_parent_keys[row].clone(),
+                                                        table_parent_tables: parent_table_names.iter().map(|i| i.as_str().to_string()).collect(),
+                                                        table_parent_columns: data.common_keys.iter().map(|i| i.as_str().to_string()).collect(),
+                                                        table_with_foreign_key: fk_table.name.as_str().to_string(),
+                                                        foreign_key_column: fk_column.column_name.as_str().to_string(),
+                                                        referred_table: t.name.as_str().to_string(),
+                                                        referred_table_column: data.refereed_columns_by_key.iter().map(|i| i.as_str().to_string()).collect::<Vec<_>>().join("->"),
+                                                        key_value: referrer_to_fk_keys[row].clone(),
+                                                    });
+                                                },
+                                            }
+                                        }
+
+                                        // all good, update index
+                                        let rel = ForeignKeyRelationship {
+                                            referred_table: t.name.clone(),
+                                            referee_table: fk_table.name.clone(),
+                                            referee_column: fk_column.column_name.clone(),
+                                        };
+
+                                        let data = ForeignKeyRelationshipData {
+                                            foreign_keys_data: fkeys_vector,
+                                            reverse_referrees_data: reverse_ref_vector,
+                                        };
+
+                                        let in_res = res.foreign_keys_map.insert(rel, data);
+                                        assert!(in_res.is_none());
+                                    } else {
+                                        let rel_key = ForeignKeyToForeignChildRelationship {
+                                            referred_table: t.name.clone(),
+                                            referee_table: fk_table.name.clone(),
+                                            referee_column: fk_column.column_name.clone(),
+                                        };
+
+                                        let data = res.foreign_to_foreign_child_keys_map.get(&rel_key).unwrap();
                                         let mut buckets_referee: HashMap<Vec<String>, HashMap<String, usize>> = HashMap::new();
 
                                         let mut common_keys_set = HashSet::new();
@@ -2847,6 +3077,7 @@ fn validate_table_metadata_interconnections(
     validate_child_primary_keys(res)?;
     validate_non_child_foreign_keys(res)?;
     validate_child_foreign_keys(res)?;
+    validate_child_native_keys(res)?;
 
     Ok(())
 }
@@ -2905,8 +3136,8 @@ fn validate_non_child_foreign_keys(res: &mut AllData) -> Result<(), DatabaseVali
     // second pass, ensure all referred tables exist
     for (table_idx, new_table) in res.tables.iter().enumerate() {
         for (column_idx, column) in new_table.columns.iter().enumerate() {
-            if let Some(ForeignKey { foreign_table: to_table, is_to_child_table }) = &column.maybe_foreign_key {
-                if !*is_to_child_table {
+            if let Some(ForeignKey { foreign_table: to_table, is_to_foreign_child_table, is_to_self_child_table }) = &column.maybe_foreign_key {
+                if !*is_to_foreign_child_table && !*is_to_self_child_table {
                     let count = res.find_table_named_idx(to_table);
                     if count.is_empty() {
                         return Err(DatabaseValidationError::ForeignKeyTableDoesntExist {
@@ -3052,12 +3283,141 @@ fn validate_non_child_foreign_keys(res: &mut AllData) -> Result<(), DatabaseVali
     Ok(())
 }
 
+fn validate_child_native_keys(res: &mut AllData) -> Result<(), DatabaseValidationError> {
+    let mut to_check_tables_vec: Vec<(DBIdentifier, (DBIdentifier, DBIdentifier))> = Vec::new();
+    for new_table in res.tables.iter() {
+        for column in new_table.columns.iter() {
+            if let Some(ForeignKey { foreign_table: to_table, is_to_self_child_table, .. }) = &column.maybe_foreign_key {
+                if *is_to_self_child_table {
+                    let to_insert = (new_table.name.clone(), column.column_name.clone());
+                    to_check_tables_vec.push((to_table.clone(), to_insert))
+                }
+            }
+        }
+    }
+
+    let mut table_keys_to_restrict = HashSet::new();
+    for (referred_table, (referrer_table, referrer_column)) in &to_check_tables_vec {
+        let _ = table_keys_to_restrict.insert(referred_table.clone());
+
+        let count = res.find_table_named_idx(referred_table);
+        if count.is_empty() {
+            return Err(DatabaseValidationError::ForeignKeyTableDoesntExist {
+                referrer_table: referrer_table.as_str().to_string(),
+                referrer_column: referrer_column.as_str().to_string(),
+                referred_table: referred_table.as_str().to_string(),
+            });
+        }
+
+        let referred_idx = count[0];
+        // ensure referred table has primary key
+        let prim_keys_count: Vec<_> = res.tables[referred_idx]
+            .columns
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, i)| {
+                if i.key_type == KeyType::PrimaryKey { Some(idx) } else { None }
+            })
+            .collect();
+
+        let parent_keys_count: Vec<_> = res.tables[referred_idx]
+            .columns
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, i)| {
+                if let KeyType::ParentPrimaryKey { .. } = i.key_type {
+                    Some(idx)
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        // primary and parent keys are mutually exclusive
+        assert!(
+            !(!prim_keys_count.is_empty() && !parent_keys_count.is_empty())
+        );
+
+        // TODO: check that referred table is child to this table
+        // prefix is all parent keys down from this table
+        let is_this_parent = parent_keys_count.iter().find_map(|idx| {
+            if let KeyType::ParentPrimaryKey { parent_table } = &res.tables[referred_idx].columns[*idx].key_type {
+                if parent_table.as_str() == referrer_table.as_str() { Some(*idx) } else { None }
+            } else { panic!("Only parent primary keys should be here") }
+        });
+
+        if is_this_parent.is_none() {
+            return Err(DatabaseValidationError::ReferredChildKeyTableIsNotDescendantToThisTable {
+                referrer_table: referrer_table.as_str().to_string(),
+                referrer_column: referrer_column.as_str().to_string(),
+                expected_to_be_descendant_table: referred_table.as_str().to_string(),
+            });
+        }
+
+        let parent_idx = is_this_parent.unwrap();
+
+        let mut this_key_vec: Vec<DBIdentifier> = Vec::new();
+        for i in parent_idx+1..res.tables[referred_idx].columns.len() {
+            match &res.tables[referred_idx].columns[i].key_type {
+                KeyType::ChildPrimaryKey { .. } | KeyType::ParentPrimaryKey { .. } => {
+                    this_key_vec.push(res.tables[referred_idx].columns[i].column_name.clone());
+                },
+                _ => {},
+            }
+        }
+
+        let mut common_keys = Vec::new();
+        for i in 0..parent_idx+1 {
+            match &res.tables[referred_idx].columns[i].key_type {
+                KeyType::ParentPrimaryKey { .. } => {
+                    common_keys.push(res.tables[referred_idx].columns[i].column_name.clone());
+                },
+                _ => {},
+            }
+        }
+
+        let key = ForeignKeyToNativeChildRelationship {
+            referred_table: referred_table.clone(),
+            referee_table: referrer_table.clone(),
+            referee_column: referrer_column.clone(),
+        };
+
+        let data = ForeignKeyToNativeChildRelationshipData {
+            refereed_columns_by_key: this_key_vec,
+            common_keys,
+        };
+
+        let res = res.foreign_to_native_child_keys_map.insert(key, data);
+        assert!(res.is_none());
+    }
+
+    for to_restrict in &table_keys_to_restrict {
+        let found = res.find_table_named_idx(to_restrict)[0];
+        for column in &mut res.tables[found].columns {
+            let should_restrict = match &column.key_type {
+                KeyType::PrimaryKey => { true },
+                KeyType::ChildPrimaryKey { .. } => { true },
+                KeyType::ParentPrimaryKey { parent_table } => {
+                    table_keys_to_restrict.contains(parent_table)
+                },
+                _ => { false }
+            };
+
+            if should_restrict {
+                column.is_snake_case_restricted = true;
+            }
+        }
+    }
+
+    Ok(())
+}
+
 fn validate_child_foreign_keys(res: &mut AllData) -> Result<(), DatabaseValidationError> {
     let mut to_check_tables_vec: Vec<(DBIdentifier, Vec<(DBIdentifier, DBIdentifier)>)> = Vec::new();
     for new_table in res.tables.iter() {
         for column in new_table.columns.iter() {
-            if let Some(ForeignKey { foreign_table: to_table, is_to_child_table }) = &column.maybe_foreign_key {
-                 if *is_to_child_table {
+            if let Some(ForeignKey { foreign_table: to_table, is_to_foreign_child_table, .. }) = &column.maybe_foreign_key {
+                if *is_to_foreign_child_table {
                     let mut found = false;
                     let to_insert = (new_table.name.clone(), column.column_name.clone());
                     for (tbl, v) in &mut to_check_tables_vec {
@@ -3181,17 +3541,17 @@ fn validate_child_foreign_keys(res: &mut AllData) -> Result<(), DatabaseValidati
                 );
             }
 
-            let rel = ForeignKeyToChildRelationship {
+            let rel = ForeignKeyToForeignChildRelationship {
                 referred_table: referred_table.clone(),
                 referee_table: referee_name.clone(),
                 referee_column: referee_column.clone(),
             };
-            let data = ForeignKeyToChildRelationshipData {
+            let data = ForeignKeyToForeignChildRelationshipData {
                 refereed_columns_by_key: this_explicit_key,
                 common_parent_keys,
             };
 
-            let res = res.foreign_child_keys_map.insert(rel, data);
+            let res = res.foreign_to_foreign_child_keys_map.insert(rel, data);
             assert!(res.is_none());
 
             // now we have explicit key...
@@ -4489,7 +4849,8 @@ fn map_parsed_column_to_data_column(
 
         Some(ForeignKey {
             foreign_table: DBIdentifier::new(&input.the_type)?,
-            is_to_child_table: input.is_reference_to_child_table,
+            is_to_foreign_child_table: input.is_reference_to_foreign_child_table,
+            is_to_self_child_table: input.is_reference_to_self_child_table,
         })
     } else { None };
 

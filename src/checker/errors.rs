@@ -222,6 +222,21 @@ pub enum DatabaseValidationError {
         referred_table_column: String,
         key_value: String,
     },
+    NonExistingParentToChildKey {
+        table_parent_keys: Vec<String>,
+        table_parent_tables: Vec<String>,
+        table_parent_columns: Vec<String>,
+        table_with_foreign_key: String,
+        foreign_key_column: String,
+        referred_table: String,
+        referred_table_column: String,
+        key_value: String,
+    },
+    ReferredChildKeyTableIsNotDescendantToThisTable {
+        referrer_table: String,
+        referrer_column: String,
+        expected_to_be_descendant_table: String,
+    },
     UniqConstraintViolated {
         table_name: String,
         tuple_definition: String,

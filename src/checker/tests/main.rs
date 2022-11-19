@@ -95,7 +95,8 @@ DATA servers(hostname, region) {
                 servers_region.maybe_foreign_key,
                 Some(crate::checker::types::ForeignKey {
                     foreign_table: DBIdentifier::new("regions").unwrap(),
-                    is_to_child_table: false,
+                    is_to_foreign_child_table: false,
+                    is_to_self_child_table: false,
                 })
             );
             assert!(!servers_region.data.has_default_value());
@@ -225,7 +226,8 @@ DATA regions {
                 servers_region.maybe_foreign_key,
                 Some(crate::checker::types::ForeignKey {
                     foreign_table: DBIdentifier::new("regions").unwrap(),
-                    is_to_child_table: false,
+                    is_to_foreign_child_table: false,
+                    is_to_self_child_table: false,
                 })
             );
             assert!(!servers_region.data.has_default_value());

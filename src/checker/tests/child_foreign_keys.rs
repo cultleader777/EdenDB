@@ -17,7 +17,7 @@ fn test_child_foreign_key_refers_to_non_existing_table() {
         },
         r#"
 TABLE good_ref {
-    ref_port_no REF CHILD non_existant,
+    ref_port_no REF FOREIGN CHILD non_existant,
 }
         "#
     );
@@ -37,7 +37,7 @@ TABLE existant {
 }
 
 TABLE good_ref {
-    ref_key REF CHILD existant,
+    ref_key REF FOREIGN CHILD existant,
 }
         "#
     );
@@ -63,7 +63,7 @@ TABLE existant_child {
 
 TABLE bad_ref {
     inner_key INT PRIMARY KEY CHILD OF existant_parent,
-    ref_key REF CHILD existant_child,
+    ref_key REF FOREIGN CHILD existant_child,
 }
         "#
     );
@@ -92,7 +92,7 @@ TABLE child_of_parent {
 
 TABLE bad_ref {
     inner_key INT PRIMARY KEY CHILD OF child_of_parent,
-    ref_key REF CHILD existant_child,
+    ref_key REF FOREIGN CHILD existant_child,
 }
         "#
     );
@@ -116,7 +116,7 @@ TABLE existant_child {
 }
 
 TABLE good_ref {
-    ref_key REF CHILD existant_child,
+    ref_key REF FOREIGN CHILD existant_child,
 }
 
 DATA existant_parent {
@@ -144,7 +144,7 @@ TABLE existant_child {
 }
 
 TABLE good_ref {
-    ref_key REF CHILD existant_child,
+    ref_key REF FOREIGN CHILD existant_child,
 }
 
 DATA existant_parent {
@@ -174,7 +174,7 @@ TABLE existant_child {
 }
 
 TABLE good_ref {
-    ref_key REF CHILD existant_child,
+    ref_key REF FOREIGN CHILD existant_child,
 }
 
 DATA existant_parent {
@@ -202,7 +202,7 @@ TABLE existant_child {
 }
 
 TABLE good_ref {
-    ref_key REF CHILD existant_child,
+    ref_key REF FOREIGN CHILD existant_child,
 }
 
 DATA existant_parent {
@@ -235,7 +235,7 @@ TABLE existant_child {
 }
 
 TABLE good_ref {
-    ref_key REF CHILD existant_child,
+    ref_key REF FOREIGN CHILD existant_child,
 }
 
 DATA existant_parent {
@@ -270,7 +270,7 @@ TABLE existant_child {
 }
 
 TABLE good_ref {
-    ref_key REF CHILD existant_child,
+    ref_key REF FOREIGN CHILD existant_child,
 }
 
 DATA existant_parent {
@@ -309,7 +309,7 @@ TABLE existant_child {
 }
 
 TABLE good_ref {
-    ref_key REF CHILD existant_child,
+    ref_key REF FOREIGN CHILD existant_child,
 }
 
 DATA existant_parent {
@@ -353,7 +353,7 @@ TABLE existant_child_2 {
 
 TABLE good_ref {
     uniq_key INT PRIMARY KEY CHILD OF existant_parent,
-    ref_key REF CHILD existant_child_2,
+    ref_key REF FOREIGN CHILD existant_child_2,
 }
 
 DATA existant_parent {
@@ -388,7 +388,7 @@ TABLE existant_child_2 {
 
 TABLE good_ref {
     uniq_key INT PRIMARY KEY CHILD OF existant_parent,
-    ref_key REF CHILD existant_child_2,
+    ref_key REF FOREIGN CHILD existant_child_2,
 }
 
 DATA existant_parent {
@@ -435,7 +435,7 @@ TABLE existant_child_2 {
 }
 
 TABLE good_ref {
-    ref_key REF CHILD existant_child_2,
+    ref_key REF FOREIGN CHILD existant_child_2,
 }
 
 DATA existant_parent {
@@ -480,7 +480,7 @@ TABLE existant_child {
 }
 
 TABLE good_ref {
-    ref_key REF CHILD existant_child,
+    ref_key REF FOREIGN CHILD existant_child,
 }
 
 DATA existant_parent {
@@ -535,7 +535,7 @@ TABLE existant_child_2 {
 
 TABLE good_ref {
     uniq_key INT PRIMARY KEY CHILD OF existant_parent,
-    ref_key REF CHILD existant_child_2,
+    ref_key REF FOREIGN CHILD existant_child_2,
 }
 
 DATA existant_parent {
@@ -573,7 +573,7 @@ TABLE good_ref_parent_2 {
 
 TABLE good_ref {
     p3 TEXT PRIMARY KEY CHILD OF good_ref_parent_2,
-    ref_key REF CHILD existant_child,
+    ref_key REF FOREIGN CHILD existant_child,
 }
 
 DATA existant_parent {
@@ -605,6 +605,205 @@ DATA good_ref_parent_1 {
             ],
             "good_ref":[
                 {"p1": "k1", "p2": "k2", "p3": "k3", "ref_key": "outer_val->inner_val"}
+            ],
+        })
+    );
+}
+
+#[test]
+fn test_child_refer_to_non_child_table() {
+    assert_test_validaton_exception(
+        DatabaseValidationError::ReferredChildKeyTableIsNotDescendantToThisTable {
+            referrer_table: "existant_parent".to_string(),
+            referrer_column: "spec_child".to_string(),
+            expected_to_be_descendant_table: "some_table".to_string(),
+        },
+        r#"
+TABLE existant_parent {
+    some_key TEXT PRIMARY KEY,
+    spec_child REF CHILD some_table,
+}
+
+TABLE some_table {
+    some_key TEXT PRIMARY KEY,
+}
+        "#,
+    );
+}
+
+#[test]
+fn test_child_refer_to_non_existing_child() {
+    assert_test_validaton_exception(
+        DatabaseValidationError::NonExistingParentToChildKey {
+            table_parent_keys: vec!["outer_val".to_string()],
+            table_parent_columns: vec!["some_key".to_string()],
+            table_parent_tables: vec!["existant_parent".to_string()],
+            table_with_foreign_key: "existant_parent".to_string(),
+            foreign_key_column: "spec_child".to_string(),
+            referred_table: "existant_child".to_string(),
+            referred_table_column: "some_child_key".to_string(),
+            key_value: "unknown_val".to_string(),
+        },
+        r#"
+TABLE existant_parent {
+    some_key TEXT PRIMARY KEY,
+    spec_child REF CHILD existant_child,
+}
+
+TABLE existant_child {
+    some_child_key TEXT PRIMARY KEY CHILD OF existant_parent,
+}
+
+DATA existant_parent {
+    outer_val, unknown_val WITH existant_child {
+        inner_val
+    }
+}
+        "#,
+    );
+}
+
+#[test]
+fn test_child_refer_to_existing_child() {
+    assert_compiles_data(
+        r#"
+TABLE existant_parent {
+    some_key TEXT PRIMARY KEY,
+    spec_child REF CHILD existant_child,
+}
+
+TABLE existant_child {
+    some_child_key TEXT PRIMARY KEY CHILD OF existant_parent,
+}
+
+DATA existant_parent {
+    outer_val, inner_val WITH existant_child {
+        inner_val
+    }
+}
+        "#,
+        json!({
+            "existant_parent":[
+                {"some_key":"outer_val", "spec_child": "inner_val"},
+            ],
+            "existant_child":[
+                {"some_key":"outer_val", "some_child_key": "inner_val"},
+            ],
+        })
+    );
+}
+
+#[test]
+fn test_child_refer_to_existing_nested_child_no_key() {
+    assert_test_validaton_exception(
+        DatabaseValidationError::NonExistingParentToChildKey {
+            table_parent_keys: vec!["outer_val".to_string()],
+            table_parent_columns: vec!["some_key".to_string()],
+            table_parent_tables: vec!["existant_parent".to_string()],
+            table_with_foreign_key: "existant_parent".to_string(),
+            foreign_key_column: "spec_child".to_string(),
+            referred_table: "existant_child_2".to_string(),
+            referred_table_column: "some_child_key->some_child_key_2".to_string(),
+            key_value: "inner_val->henloz".to_string(),
+        },
+        r#"
+TABLE existant_parent {
+    some_key TEXT PRIMARY KEY,
+    spec_child REF CHILD existant_child_2,
+}
+
+TABLE existant_child {
+    some_child_key TEXT PRIMARY KEY CHILD OF existant_parent,
+}
+
+TABLE existant_child_2 {
+    some_child_key_2 TEXT PRIMARY KEY CHILD OF existant_child,
+}
+
+DATA existant_parent {
+    outer_val, inner_val->henloz WITH existant_child {
+        inner_val WITH existant_child_2 {
+            henlo
+        }
+    }
+}
+        "#,
+    );
+}
+
+
+#[test]
+fn test_child_refer_to_existing_nested_child_no_key_outer() {
+    assert_test_validaton_exception(
+        DatabaseValidationError::NonExistingParentToChildKey {
+            table_parent_keys: vec!["outer_val".to_string()],
+            table_parent_columns: vec!["some_key".to_string()],
+            table_parent_tables: vec!["existant_parent".to_string()],
+            table_with_foreign_key: "existant_parent".to_string(),
+            foreign_key_column: "spec_child".to_string(),
+            referred_table: "existant_child_2".to_string(),
+            referred_table_column: "some_child_key->some_child_key_2".to_string(),
+            key_value: "inner_valz->henlo".to_string(),
+        },
+        r#"
+TABLE existant_parent {
+    some_key TEXT PRIMARY KEY,
+    spec_child REF CHILD existant_child_2,
+}
+
+TABLE existant_child {
+    some_child_key TEXT PRIMARY KEY CHILD OF existant_parent,
+}
+
+TABLE existant_child_2 {
+    some_child_key_2 TEXT PRIMARY KEY CHILD OF existant_child,
+}
+
+DATA existant_parent {
+    outer_val, inner_valz->henlo WITH existant_child {
+        inner_val WITH existant_child_2 {
+            henlo
+        }
+    }
+}
+        "#,
+    );
+}
+
+#[test]
+fn test_child_refer_to_existing_nested_child() {
+    assert_compiles_data(
+        r#"
+TABLE existant_parent {
+    some_key TEXT PRIMARY KEY,
+    spec_child REF CHILD existant_child_2,
+}
+
+TABLE existant_child {
+    some_child_key TEXT PRIMARY KEY CHILD OF existant_parent,
+}
+
+TABLE existant_child_2 {
+    some_child_key_2 TEXT PRIMARY KEY CHILD OF existant_child,
+}
+
+DATA existant_parent {
+    outer_val, inner_val->henlo WITH existant_child {
+        inner_val WITH existant_child_2 {
+            henlo
+        }
+    }
+}
+        "#,
+        json!({
+            "existant_parent":[
+                {"some_key":"outer_val", "spec_child": "inner_val->henlo"},
+            ],
+            "existant_child":[
+                {"some_key":"outer_val", "some_child_key": "inner_val"},
+            ],
+            "existant_child_2":[
+                {"some_key":"outer_val", "some_child_key": "inner_val", "some_child_key_2": "henlo"},
             ],
         })
     );
