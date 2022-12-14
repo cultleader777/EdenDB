@@ -443,3 +443,165 @@ MATERIALIZED VIEW cholo {
         "#,
     );
 }
+
+#[test]
+fn test_mat_views_with_primary_key() {
+    assert_compiles_data(
+        r#"
+TABLE source {
+    i INT,
+}
+
+DATA source {
+    1;
+    2;
+    3;
+}
+
+MATERIALIZED VIEW cholo {
+    other_i INT PRIMARY KEY,
+} AS {
+    SELECT * FROM source
+}
+        "#,
+        json!({
+            "source": [
+                {"i": 1.0},
+                {"i": 2.0},
+                {"i": 3.0},
+            ],
+            "cholo": [
+                {"other_i": 1.0},
+                {"other_i": 2.0},
+                {"other_i": 3.0},
+            ],
+        })
+    );
+}
+
+#[test]
+fn test_mat_views_with_child_primary_key() {
+    assert_compiles_data(
+        r#"
+TABLE source {
+    i INT PRIMARY KEY,
+}
+
+DATA source {
+    1;
+    2;
+    3;
+}
+
+MATERIALIZED VIEW cholo {
+    child_key INT PRIMARY KEY CHILD OF source,
+} AS {
+    SELECT i, 7 FROM source
+}
+        "#,
+        json!({
+            "source": [
+                {"i": 1.0},
+                {"i": 2.0},
+                {"i": 3.0},
+            ],
+            "cholo": [
+                {"i": 1.0, "child_key": 7.0},
+                {"i": 2.0, "child_key": 7.0},
+                {"i": 3.0, "child_key": 7.0},
+            ],
+        })
+    );
+}
+
+#[test]
+fn test_mat_views_with_foreign_key() {
+    assert_compiles_data(
+        r#"
+TABLE source {
+    i INT PRIMARY KEY,
+}
+
+DATA source {
+    1;
+    2;
+    3;
+}
+
+MATERIALIZED VIEW cholo {
+    foreign_key REF source,
+} AS {
+    SELECT i FROM source
+}
+        "#,
+        json!({
+            "source": [
+                {"i": 1.0},
+                {"i": 2.0},
+                {"i": 3.0},
+            ],
+            "cholo": [
+                {"foreign_key": 1.0},
+                {"foreign_key": 2.0},
+                {"foreign_key": 3.0},
+            ],
+        })
+    );
+}
+
+#[test]
+fn test_mat_views_ref_foreign_child() {
+    assert_compiles_data(
+        r#"
+TABLE parent {
+    pk INT PRIMARY KEY,
+}
+
+TABLE child {
+    ck INT PRIMARY KEY CHILD OF parent,
+}
+
+TABLE source {
+    i TEXT,
+}
+
+DATA parent {
+    1 WITH child {
+        10
+    };
+    2 WITH child {
+        20
+    };
+}
+
+DATA source {
+    1->10;
+    2->20;
+}
+
+MATERIALIZED VIEW cholo {
+    foreign_key REF FOREIGN CHILD child,
+} AS {
+    SELECT i FROM source
+}
+        "#,
+        json!({
+            "parent": [
+                {"pk": 1.0},
+                {"pk": 2.0},
+            ],
+            "child": [
+                {"pk": 1.0, "ck": 10.0},
+                {"pk": 2.0, "ck": 20.0},
+            ],
+            "source": [
+                {"i": "1->10"},
+                {"i": "2->20"},
+            ],
+            "cholo": [
+                {"foreign_key": "1->10"},
+                {"foreign_key": "2->20"},
+            ],
+        })
+    );
+}
