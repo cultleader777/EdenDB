@@ -1625,7 +1625,7 @@ fn compute_lua_vector_value<'lua, T: Clone + std::str::FromStr>(
 }
 
 fn ensure_child_foreign_keys_are_restricted(res: &AllData) -> Result<(), DatabaseValidationError> {
-    let valid_snake_case = Regex::new("^[a-z0-9_]+$").unwrap();
+    let valid_snake_case = Regex::new("^[a-z0-9_-]+$").unwrap();
     for table in &res.tables {
         for column in &table.columns {
             if column.is_snake_case_restricted {
