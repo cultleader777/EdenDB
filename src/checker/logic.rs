@@ -3863,88 +3863,97 @@ fn insert_structured_data(
 
         for col in &mut res.tables[tbl_idx].columns {
             let is_required = col.is_required();
-            match &mut col.data {
-                ColumnVector::Strings(v) => {
-                    let kv_idx = uniq_fields.get(&col.column_name);
-                    if !is_required && kv_idx.is_none() {
-                        let res = v.push_default_value();
-                        assert!(res, "Default value is assumed to exist here");
-                    } else {
-                        let kv_idx = *kv_idx.unwrap();
-                        v.v.push(row.value_fields[kv_idx].value.clone());
-                    }
+            let kv_idx = uniq_fields.get(&col.column_name);
+            if col.generate_expression.is_some() {
+                if kv_idx.is_some() {
+                    return Err(DatabaseValidationError::ComputerColumnCannotBeExplicitlySpecified {
+                        table_name: tname_id.as_str().to_string(),
+                        column_name: col.column_name.as_str().to_string(),
+                        compute_expression: col.generate_expression.as_ref().unwrap().clone(),
+                    });
                 }
-                ColumnVector::Ints(v) => {
-                    let kv_idx = uniq_fields.get(&col.column_name);
-                    if !is_required && kv_idx.is_none() {
-                        // insert default value
-                        let res = v.push_default_value();
-                        assert!(res, "Default value is assumed to exist here");
-                    } else {
-                        let kv_idx = *kv_idx.unwrap();
-                        match row.value_fields[kv_idx].value.parse::<i64>() {
-                            Ok(i) => {
-                                v.v.push(i);
-                            }
-                            Err(_) => {
-                                return Err(
-                                    DatabaseValidationError::DataCannotParseDataStructColumnValue {
-                                        table_name: sd.target_table_name.clone(),
-                                        column_name: col.column_name.as_str().to_string(),
-                                        expected_type: col.data.column_type(),
-                                        column_value: row.value_fields[kv_idx].value.clone(),
-                                    },
-                                );
+
+                col.data.push_dummy_values(1);
+            } else {
+                match &mut col.data {
+                    ColumnVector::Strings(v) => {
+                        if !is_required && kv_idx.is_none() {
+                            let res = v.push_default_value();
+                            assert!(res, "Default value is assumed to exist here");
+                        } else {
+                            let kv_idx = *kv_idx.unwrap();
+                            v.v.push(row.value_fields[kv_idx].value.clone());
+                        }
+                    }
+                    ColumnVector::Ints(v) => {
+                        if !is_required && kv_idx.is_none() {
+                            // insert default value
+                            let res = v.push_default_value();
+                            assert!(res, "Default value is assumed to exist here");
+                        } else {
+                            let kv_idx = *kv_idx.unwrap();
+                            match row.value_fields[kv_idx].value.parse::<i64>() {
+                                Ok(i) => {
+                                    v.v.push(i);
+                                }
+                                Err(_) => {
+                                    return Err(
+                                        DatabaseValidationError::DataCannotParseDataStructColumnValue {
+                                            table_name: sd.target_table_name.clone(),
+                                            column_name: col.column_name.as_str().to_string(),
+                                            expected_type: col.data.column_type(),
+                                            column_value: row.value_fields[kv_idx].value.clone(),
+                                        },
+                                    );
+                                }
                             }
                         }
                     }
-                }
-                ColumnVector::Floats(v) => {
-                    let kv_idx = uniq_fields.get(&col.column_name);
-                    if !is_required && kv_idx.is_none() {
-                        // insert default value
-                        let res = v.push_default_value();
-                        assert!(res, "Default value is assumed to exist here");
-                    } else {
-                        let kv_idx = *kv_idx.unwrap();
-                        match row.value_fields[kv_idx].value.parse::<f64>() {
-                            Ok(i) => {
-                                v.v.push(i);
-                            }
-                            Err(_) => {
-                                return Err(
-                                    DatabaseValidationError::DataCannotParseDataStructColumnValue {
-                                        table_name: sd.target_table_name.clone(),
-                                        column_name: col.column_name.as_str().to_string(),
-                                        expected_type: col.data.column_type(),
-                                        column_value: row.value_fields[kv_idx].value.clone(),
-                                    },
-                                );
+                    ColumnVector::Floats(v) => {
+                        if !is_required && kv_idx.is_none() {
+                            // insert default value
+                            let res = v.push_default_value();
+                            assert!(res, "Default value is assumed to exist here");
+                        } else {
+                            let kv_idx = *kv_idx.unwrap();
+                            match row.value_fields[kv_idx].value.parse::<f64>() {
+                                Ok(i) => {
+                                    v.v.push(i);
+                                }
+                                Err(_) => {
+                                    return Err(
+                                        DatabaseValidationError::DataCannotParseDataStructColumnValue {
+                                            table_name: sd.target_table_name.clone(),
+                                            column_name: col.column_name.as_str().to_string(),
+                                            expected_type: col.data.column_type(),
+                                            column_value: row.value_fields[kv_idx].value.clone(),
+                                        },
+                                    );
+                                }
                             }
                         }
                     }
-                }
-                ColumnVector::Bools(v) => {
-                    let kv_idx = uniq_fields.get(&col.column_name);
-                    if !is_required && kv_idx.is_none() {
-                        // insert default value
-                        let res = v.push_default_value();
-                        assert!(res, "Default value is assumed to exist here");
-                    } else {
-                        let kv_idx = *kv_idx.unwrap();
-                        match row.value_fields[kv_idx].value.parse::<bool>() {
-                            Ok(i) => {
-                                v.v.push(i);
-                            }
-                            Err(_) => {
-                                return Err(
-                                    DatabaseValidationError::DataCannotParseDataStructColumnValue {
-                                        table_name: sd.target_table_name.clone(),
-                                        column_name: col.column_name.as_str().to_string(),
-                                        expected_type: col.data.column_type(),
-                                        column_value: row.value_fields[kv_idx].value.clone(),
-                                    },
-                                );
+                    ColumnVector::Bools(v) => {
+                        if !is_required && kv_idx.is_none() {
+                            // insert default value
+                            let res = v.push_default_value();
+                            assert!(res, "Default value is assumed to exist here");
+                        } else {
+                            let kv_idx = *kv_idx.unwrap();
+                            match row.value_fields[kv_idx].value.parse::<bool>() {
+                                Ok(i) => {
+                                    v.v.push(i);
+                                }
+                                Err(_) => {
+                                    return Err(
+                                        DatabaseValidationError::DataCannotParseDataStructColumnValue {
+                                            table_name: sd.target_table_name.clone(),
+                                            column_name: col.column_name.as_str().to_string(),
+                                            expected_type: col.data.column_type(),
+                                            column_value: row.value_fields[kv_idx].value.clone(),
+                                        },
+                                    );
+                                }
                             }
                         }
                     }

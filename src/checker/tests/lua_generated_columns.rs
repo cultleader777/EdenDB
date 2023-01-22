@@ -375,3 +375,97 @@ DATA cholo {
         assert!(error.contains("attempt to concatenate global 'computed_text' (a nil value)"));
     } else { panic!() }
 }
+
+#[test]
+fn test_lua_use_default_value_for_computed_column() {
+    assert_compiles_data(
+        r#"
+TABLE cholo {
+    name TEXT,
+    id INT DEFAULT 2,
+    id2 INT GENERATED AS { id + 1 },
+}
+
+DATA cholo {
+    henlo;
+}
+        "#,
+        json!({
+            "cholo": [
+                {
+                    "name": "henlo",
+                    "id": 2.0,
+                    "id2": 3.0,
+                },
+            ]
+        }),
+    );
+}
+
+#[test]
+fn test_lua_use_default_value_for_computed_column_struct() {
+    assert_compiles_data(
+        r#"
+TABLE cholo {
+    name TEXT,
+    id INT DEFAULT 2,
+    id2 INT GENERATED AS { id + 1 },
+}
+
+DATA STRUCT cholo {
+    name: henlo,
+}
+        "#,
+        json!({
+            "cholo": [
+                {
+                    "name": "henlo",
+                    "id": 2.0,
+                    "id2": 3.0,
+                },
+            ]
+        }),
+    );
+}
+
+#[test]
+fn test_explicit_specification_of_computer_column_error() {
+    assert_test_validaton_exception(
+        DatabaseValidationError::ComputerColumnCannotBeExplicitlySpecified {
+            table_name: "cholo".to_string(),
+            column_name: "id2".to_string(),
+            compute_expression: " 7 ".to_string(),
+        },
+        r#"
+TABLE cholo {
+    id INT,
+    id2 INT GENERATED AS { 7 },
+}
+
+DATA cholo(id, id2) {
+    1, 2;
+}
+        "#,
+    );
+}
+
+#[test]
+fn test_explicit_specification_of_computer_column_error_struct() {
+    assert_test_validaton_exception(
+        DatabaseValidationError::ComputerColumnCannotBeExplicitlySpecified {
+            table_name: "cholo".to_string(),
+            column_name: "id2".to_string(),
+            compute_expression: " 7 ".to_string(),
+        },
+        r#"
+TABLE cholo {
+    id INT,
+    id2 INT GENERATED AS { 7 },
+}
+
+DATA STRUCT cholo {
+    id: 1, id2: 2
+}
+        "#,
+    );
+}

@@ -176,6 +176,11 @@ pub enum DatabaseValidationError {
         table_name: String,
         column_name: String,
     },
+    ComputerColumnCannotBeExplicitlySpecified {
+        table_name: String,
+        column_name: String,
+        compute_expression: String,
+    },
     ExtraDataParentMustHavePrimaryKey {
         parent_table: String,
     },

@@ -288,6 +288,15 @@ impl DataTable {
         for table_column in self.columns.iter_mut() {
             match consistent_df.column_by_name(table_column.column_name.as_str()) {
                 Some((col_idx, df_column)) => {
+
+                    if table_column.generate_expression.is_some() {
+                        return Err(DatabaseValidationError::ComputerColumnCannotBeExplicitlySpecified {
+                            table_name: self.name.as_str().to_string(),
+                            column_name: table_column.column_name.as_str().to_string(),
+                            compute_expression: table_column.generate_expression.as_ref().unwrap().clone(),
+                        });
+                    }
+
                     match table_column
                         .data
                         .try_parse_and_append_vector(df_column.column_data.as_slice())
