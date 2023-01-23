@@ -258,7 +258,7 @@ fn test_child_foreign_key_whitespace_in_segments() {
             referee_table: "existant_child".to_string(),
             referrer_table: "good_ref".to_string(),
             referrer_column: "ref_key".to_string(),
-            offending_value: "outer_val -> inner_val".to_string(),
+            offending_value: "outer_val => inner_val".to_string(),
         },
         r#"
 TABLE existant_parent {
@@ -280,7 +280,7 @@ DATA existant_parent {
 }
 
 DATA good_ref {
-    "outer_val -> inner_val"
+    "outer_val => inner_val"
 }
         "#
     );
@@ -296,8 +296,8 @@ fn test_child_foreign_key_referring_to_non_existing_element() {
             table_with_foreign_key: "good_ref".to_string(),
             foreign_key_column: "ref_key".to_string(),
             referred_table: "existant_child".to_string(),
-            referred_table_column: "some_key->some_child_key".to_string(),
-            key_value: "no_such->inner_val".to_string(),
+            referred_table_column: "some_key=>some_child_key".to_string(),
+            key_value: "no_such=>inner_val".to_string(),
         },
         r#"
 TABLE existant_parent {
@@ -319,7 +319,7 @@ DATA existant_parent {
 }
 
 DATA good_ref {
-    "no_such->inner_val"
+    "no_such=>inner_val"
 }
         "#
     );
@@ -335,8 +335,8 @@ fn test_child_inner_foreign_key_referring_to_non_existing_element() {
             table_with_foreign_key: "good_ref".to_string(),
             foreign_key_column: "ref_key".to_string(),
             referred_table: "existant_child_2".to_string(),
-            referred_table_column: "some_child_key->some_child_key_2".to_string(),
-            key_value: "outer_val->more_inner_val".to_string(),
+            referred_table_column: "some_child_key=>some_child_key_2".to_string(),
+            key_value: "outer_val=>more_inner_val".to_string(),
         },
         r#"
 TABLE existant_parent {
@@ -362,7 +362,7 @@ DATA existant_parent {
             more_inner_val
         }
     } WITH good_ref {
-        7, "outer_val->more_inner_val"
+        7, "outer_val=>more_inner_val"
     }
 }
         "#
@@ -397,7 +397,7 @@ DATA existant_parent {
             more_inner_val
         }
     } WITH good_ref {
-        7, "inner_val->more_inner_val"
+        7, "inner_val=>more_inner_val"
     }
 }
         "#,
@@ -412,7 +412,7 @@ DATA existant_parent {
                 {"some_key":"outer_val", "some_child_key": "inner_val", "some_child_key_2": "more_inner_val"},
             ],
             "good_ref":[
-                {"some_key":"outer_val", "uniq_key": 7.0, "ref_key": "inner_val->more_inner_val"},
+                {"some_key":"outer_val", "uniq_key": 7.0, "ref_key": "inner_val=>more_inner_val"},
             ],
         })
     );
@@ -447,7 +447,7 @@ DATA existant_parent {
 }
 
 DATA good_ref {
-    "outer_val->inner_val->more_inner_val"
+    "outer_val=>inner_val=>more_inner_val"
 }
         "#,
         json!({
@@ -461,7 +461,7 @@ DATA good_ref {
                 {"some_key":"outer_val", "some_child_key": "inner_val", "some_child_key_2": "more_inner_val"},
             ],
             "good_ref":[
-                { "ref_key": "outer_val->inner_val->more_inner_val"},
+                { "ref_key": "outer_val=>inner_val=>more_inner_val"},
             ],
         })
     );
@@ -490,7 +490,7 @@ DATA existant_parent {
 }
 
 DATA good_ref {
-    outer_val->inner_val
+    outer_val=>inner_val
 }
         "#,
         json!({
@@ -501,7 +501,7 @@ DATA good_ref {
                 {"some_key":"outer_val", "some_child_key": "inner_val"},
             ],
             "good_ref":[
-                { "ref_key": "outer_val->inner_val"},
+                {"ref_key": "outer_val=>inner_val"},
             ],
         })
     );
@@ -517,8 +517,8 @@ fn test_child_inner_foreign_key_diff_buckets_no_key() {
             table_with_foreign_key: "good_ref".to_string(),
             foreign_key_column: "ref_key".to_string(),
             referred_table: "existant_child_2".to_string(),
-            referred_table_column: "some_child_key->some_child_key_2".to_string(),
-            key_value: "inner_val->more_inner_val".to_string(),
+            referred_table_column: "some_child_key=>some_child_key_2".to_string(),
+            key_value: "inner_val=>more_inner_val".to_string(),
         },
         r#"
 TABLE existant_parent {
@@ -545,7 +545,7 @@ DATA existant_parent {
         }
     };
     other_outer_val WITH good_ref {
-        7, "inner_val->more_inner_val"
+        7, "inner_val=>more_inner_val"
     };
 }
         "#
@@ -585,7 +585,7 @@ DATA existant_parent {
 DATA good_ref_parent_1 {
     k1 WITH good_ref_parent_2 {
         k2 WITH good_ref {
-            k3, outer_val->inner_val
+            k3, outer_val=>inner_val
         }
     }
 }
@@ -604,7 +604,7 @@ DATA good_ref_parent_1 {
                 {"p1": "k1", "p2": "k2"}
             ],
             "good_ref":[
-                {"p1": "k1", "p2": "k2", "p3": "k3", "ref_key": "outer_val->inner_val"}
+                {"p1": "k1", "p2": "k2", "p3": "k3", "ref_key": "outer_val=>inner_val"}
             ],
         })
     );
@@ -703,8 +703,8 @@ fn test_child_refer_to_existing_nested_child_no_key() {
             table_with_foreign_key: "existant_parent".to_string(),
             foreign_key_column: "spec_child".to_string(),
             referred_table: "existant_child_2".to_string(),
-            referred_table_column: "some_child_key->some_child_key_2".to_string(),
-            key_value: "inner_val->henloz".to_string(),
+            referred_table_column: "some_child_key=>some_child_key_2".to_string(),
+            key_value: "inner_val=>henloz".to_string(),
         },
         r#"
 TABLE existant_parent {
@@ -721,7 +721,7 @@ TABLE existant_child_2 {
 }
 
 DATA existant_parent {
-    outer_val, inner_val->henloz WITH existant_child {
+    outer_val, inner_val=>henloz WITH existant_child {
         inner_val WITH existant_child_2 {
             henlo
         }
@@ -742,8 +742,8 @@ fn test_child_refer_to_existing_nested_child_no_key_outer() {
             table_with_foreign_key: "existant_parent".to_string(),
             foreign_key_column: "spec_child".to_string(),
             referred_table: "existant_child_2".to_string(),
-            referred_table_column: "some_child_key->some_child_key_2".to_string(),
-            key_value: "inner_valz->henlo".to_string(),
+            referred_table_column: "some_child_key=>some_child_key_2".to_string(),
+            key_value: "inner_valz=>henlo".to_string(),
         },
         r#"
 TABLE existant_parent {
@@ -760,7 +760,7 @@ TABLE existant_child_2 {
 }
 
 DATA existant_parent {
-    outer_val, inner_valz->henlo WITH existant_child {
+    outer_val, inner_valz=>henlo WITH existant_child {
         inner_val WITH existant_child_2 {
             henlo
         }
@@ -788,7 +788,7 @@ TABLE existant_child_2 {
 }
 
 DATA existant_parent {
-    outer_val, inner_val->henlo WITH existant_child {
+    outer_val, inner_val=>henlo WITH existant_child {
         inner_val WITH existant_child_2 {
             henlo
         }
@@ -797,7 +797,7 @@ DATA existant_parent {
         "#,
         json!({
             "existant_parent":[
-                {"some_key":"outer_val", "spec_child": "inner_val->henlo"},
+                {"some_key":"outer_val", "spec_child": "inner_val=>henlo"},
             ],
             "existant_child":[
                 {"some_key":"outer_val", "some_child_key": "inner_val"},

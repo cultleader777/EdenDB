@@ -575,8 +575,8 @@ DATA parent {
 }
 
 DATA source {
-    1->10;
-    2->20;
+    1=>10;
+    2=>20;
 }
 
 MATERIALIZED VIEW cholo {
@@ -595,12 +595,12 @@ MATERIALIZED VIEW cholo {
                 {"pk": 2.0, "ck": 20.0},
             ],
             "source": [
-                {"i": "1->10"},
-                {"i": "2->20"},
+                {"i": "1=>10"},
+                {"i": "2=>20"},
             ],
             "cholo": [
-                {"foreign_key": "1->10"},
-                {"foreign_key": "2->20"},
+                {"foreign_key": "1=>10"},
+                {"foreign_key": "2=>20"},
             ],
         })
     );

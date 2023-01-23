@@ -732,7 +732,7 @@ pub fn valid_table_or_column_name(input: &str) -> IResult<&str, &str> {
 }
 
 fn valid_unquoted_data_char(c: char) -> bool {
-    let valid_chars = "_-.!@#$%^&*>";
+    let valid_chars = "_-.!@#$%^&*=>";
     if c.is_alphanumeric() { return true; }
 
     for vc in valid_chars.chars() {

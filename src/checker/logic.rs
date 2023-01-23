@@ -1682,7 +1682,7 @@ fn ensure_child_foreign_keys_are_restricted(res: &AllData) -> Result<(), Databas
                     if let ColumnVector::Strings(sv) = &column.data {
                         for i in &sv.v {
                             let mut actual_segments = 0;
-                            for spl in i.split("->") {
+                            for spl in i.split("=>") {
                                 actual_segments += 1;
                                 if spl.trim().len() != spl.len() {
                                     return Err(
@@ -1725,7 +1725,7 @@ fn ensure_child_foreign_keys_are_restricted(res: &AllData) -> Result<(), Databas
                     if let ColumnVector::Strings(sv) = &column.data {
                         for i in &sv.v {
                             let mut actual_segments = 0;
-                            for spl in i.split("->") {
+                            for spl in i.split("=>") {
                                 actual_segments += 1;
                                 if spl.trim().len() != spl.len() {
                                     return Err(
@@ -2230,7 +2230,7 @@ fn ensure_child_primary_keys_unique_per_table_and_fkeys_exist(
 
                                         for (idx, k) in referee_parent_keys.into_iter().enumerate() {
                                             let e = buckets_referee.entry(k).or_insert_with(|| HashMap::new());
-                                            let joined_key = referee_segment_keys[idx].join("->");
+                                            let joined_key = referee_segment_keys[idx].join("=>");
                                             let res = e.insert(joined_key, idx);
                                             // should all be unique at this point, earlier unique child checks should have triggered
                                             assert!(res.is_none());
@@ -2295,7 +2295,7 @@ fn ensure_child_primary_keys_unique_per_table_and_fkeys_exist(
                                                                 table_with_foreign_key: fk_table.name.as_str().to_string(),
                                                                 foreign_key_column: fk_column.column_name.as_str().to_string(),
                                                                 referred_table: t.name.as_str().to_string(),
-                                                                referred_table_column: data.refereed_columns_by_key.iter().map(|i| i.as_str().to_string()).collect::<Vec<_>>().join("->"),
+                                                                referred_table_column: data.refereed_columns_by_key.iter().map(|i| i.as_str().to_string()).collect::<Vec<_>>().join("=>"),
                                                                 key_value: referrer_to_fk_keys[row].clone(),
                                                             });
                                                         },
@@ -2309,7 +2309,7 @@ fn ensure_child_primary_keys_unique_per_table_and_fkeys_exist(
                                                         table_with_foreign_key: fk_table.name.as_str().to_string(),
                                                         foreign_key_column: fk_column.column_name.as_str().to_string(),
                                                         referred_table: t.name.as_str().to_string(),
-                                                        referred_table_column: data.refereed_columns_by_key.iter().map(|i| i.as_str().to_string()).collect::<Vec<_>>().join("->"),
+                                                        referred_table_column: data.refereed_columns_by_key.iter().map(|i| i.as_str().to_string()).collect::<Vec<_>>().join("=>"),
                                                         key_value: referrer_to_fk_keys[row].clone(),
                                                     });
                                                 },
@@ -2400,7 +2400,7 @@ fn ensure_child_primary_keys_unique_per_table_and_fkeys_exist(
 
                                         for (idx, k) in referee_parent_keys.into_iter().enumerate() {
                                             let e = buckets_referee.entry(k).or_insert_with(|| HashMap::new());
-                                            let joined_key = referee_segment_keys[idx].join("->");
+                                            let joined_key = referee_segment_keys[idx].join("=>");
                                             let res = e.insert(joined_key, idx);
                                             // should all be unique at this point, earlier unique child checks should have triggered
                                             assert!(res.is_none());
@@ -2465,7 +2465,7 @@ fn ensure_child_primary_keys_unique_per_table_and_fkeys_exist(
                                                                 table_with_foreign_key: fk_table.name.as_str().to_string(),
                                                                 foreign_key_column: fk_column.column_name.as_str().to_string(),
                                                                 referred_table: t.name.as_str().to_string(),
-                                                                referred_table_column: data.refereed_columns_by_key.iter().map(|i| i.as_str().to_string()).collect::<Vec<_>>().join("->"),
+                                                                referred_table_column: data.refereed_columns_by_key.iter().map(|i| i.as_str().to_string()).collect::<Vec<_>>().join("=>"),
                                                                 key_value: referrer_to_fk_keys[row].clone(),
                                                             });
                                                         },
@@ -2479,7 +2479,7 @@ fn ensure_child_primary_keys_unique_per_table_and_fkeys_exist(
                                                         table_with_foreign_key: fk_table.name.as_str().to_string(),
                                                         foreign_key_column: fk_column.column_name.as_str().to_string(),
                                                         referred_table: t.name.as_str().to_string(),
-                                                        referred_table_column: data.refereed_columns_by_key.iter().map(|i| i.as_str().to_string()).collect::<Vec<_>>().join("->"),
+                                                        referred_table_column: data.refereed_columns_by_key.iter().map(|i| i.as_str().to_string()).collect::<Vec<_>>().join("=>"),
                                                         key_value: referrer_to_fk_keys[row].clone(),
                                                     });
                                                 },

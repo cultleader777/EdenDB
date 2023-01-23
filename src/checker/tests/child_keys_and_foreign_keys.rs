@@ -96,7 +96,7 @@ DATA existant_parent {
             more_inner_val
         }
     } WITH good_ref {
-        inner_val->more_inner_val
+        inner_val=>more_inner_val
     }
 }
         "#,
@@ -111,7 +111,7 @@ DATA existant_parent {
                 {"some_key":"outer_val", "some_child_key": "inner_val", "some_child_key_2": "more_inner_val"},
             ],
             "good_ref":[
-                {"some_key":"outer_val", "ref_key": "inner_val->more_inner_val"},
+                {"some_key":"outer_val", "ref_key": "inner_val=>more_inner_val"},
             ],
         })
     );
