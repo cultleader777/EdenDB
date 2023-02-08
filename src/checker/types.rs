@@ -472,6 +472,10 @@ impl DataColumn {
     }
 
     pub fn is_required(&self) -> bool {
+        if self.data.has_default_value() {
+            return false;
+        }
+
         if self.maybe_foreign_key.is_some() {
             return true;
         }

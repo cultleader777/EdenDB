@@ -156,7 +156,7 @@ pub enum DatabaseValidationError {
         table_name: String,
         column_name: String,
     },
-    PrimaryOrForeignKeysCannotHaveDefaultValue {
+    PrimaryKeysCannotHaveDefaultValue {
         table_name: String,
         column_name: String,
     },

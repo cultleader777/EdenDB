@@ -658,16 +658,63 @@ DATA cholo(id) {
 }
 
 #[test]
-fn test_validation_exception_foreign_keys_no_default_value() {
-    assert_test_validaton_exception(
-        DatabaseValidationError::PrimaryOrForeignKeysCannotHaveDefaultValue {
-            table_name: "cholo".to_string(),
-            column_name: "id2".to_string(),
-        },
+fn test_foreign_keys_default_value() {
+    assert_compiles_data(
         r#"
+TABLE kukushkin {
+    mookie TEXT PRIMARY KEY,
+}
+
+DATA kukushkin {
+    sup;
+}
+
 TABLE cholo {
     id INT,
     id2 REF kukushkin DEFAULT sup,
+}
+
+DATA STRUCT cholo {
+    id: 7
+}
+        "#,
+        json!({
+            "kukushkin": [
+                {"mookie": "sup"},
+            ],
+            "cholo": [
+                {"id": 7.0, "id2": "sup"}
+            ],
+        })
+    );
+}
+
+#[test]
+fn test_foreign_keys_bad_default_key() {
+    assert_test_validaton_exception(
+        DatabaseValidationError::NonExistingForeignKey {
+            table_with_foreign_key: "cholo".to_string(),
+            foreign_key_column: "id2".to_string(),
+            referred_table: "kukushkin".to_string(),
+            referred_table_column: "mookie".to_string(),
+            key_value: "supz".to_string(),
+        },
+        r#"
+TABLE kukushkin {
+    mookie TEXT PRIMARY KEY,
+}
+
+DATA kukushkin {
+    sup;
+}
+
+TABLE cholo {
+    id INT,
+    id2 REF kukushkin DEFAULT supz,
+}
+
+DATA STRUCT cholo {
+    id: 7
 }
         "#,
     );

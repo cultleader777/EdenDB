@@ -4814,7 +4814,7 @@ fn map_parsed_column_to_data_column(
     let forbid_default_value = || {
         if input.default_expression.is_some() {
             return Err(
-                DatabaseValidationError::PrimaryOrForeignKeysCannotHaveDefaultValue {
+                DatabaseValidationError::PrimaryKeysCannotHaveDefaultValue {
                     table_name: table_name.to_string(),
                     column_name: column_name.as_str().to_string(),
                 },
@@ -4853,7 +4853,6 @@ fn map_parsed_column_to_data_column(
     };
 
     let maybe_foreign_key = if input.is_reference_to_other_table {
-        forbid_default_value()?;
         forbid_computed_value()?;
 
         Some(ForeignKey {
