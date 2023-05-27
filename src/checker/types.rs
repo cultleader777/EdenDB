@@ -175,7 +175,7 @@ impl DataTable {
             }
         }
 
-        return None;
+        None
     }
 
     pub fn len(&self) -> usize {
@@ -205,7 +205,7 @@ impl DataTable {
 
     fn prepare_columns_to_insert(&self, target_table_fields: &[&str]) -> Result<Vec<String>, DatabaseValidationError> {
         let mut columns_to_insert = Vec::with_capacity(target_table_fields.len());
-        if target_table_fields.len() > 0 {
+        if !target_table_fields.is_empty() {
             for tf in target_table_fields.iter() {
                 let tf_dbi = DBIdentifier::new(tf)?;
                 let found: Vec<_> = self.find_column_named_idx(&tf_dbi);
@@ -385,23 +385,23 @@ impl DataTable {
             }
         }
 
-        let is_child_primary_key_mode = parent_pkey.len() > 0;
+        let is_child_primary_key_mode = !parent_pkey.is_empty();
         let is_foreign_key_mode = !is_child_primary_key_mode;
         // parent primary key is always preferred instead of foreign key
         if is_foreign_key_mode {
             if foreign_keys.len() > 1 {
-                return NestedInsertionMode::AmbigousForeignKeys { column_list: foreign_keys };
+                NestedInsertionMode::AmbigousForeignKeys { column_list: foreign_keys }
             } else if foreign_keys.len() == 1 {
-                return NestedInsertionMode::ForeignKeyMode { foreign_key_column: foreign_keys[0] };
+                NestedInsertionMode::ForeignKeyMode { foreign_key_column: foreign_keys[0] }
             } else {
-                return NestedInsertionMode::TablesUnrelated;
+                NestedInsertionMode::TablesUnrelated
             }
         } else {
             // we check this earlier with nice user error
-            assert!(parent_pkey.len() > 0);
-            return NestedInsertionMode::ChildPrimaryKeyMode {
+            assert!(!parent_pkey.is_empty());
+            NestedInsertionMode::ChildPrimaryKeyMode {
                 parent_key_columns: parent_pkey,
-            };
+            }
         }
     }
 
@@ -459,7 +459,7 @@ impl DataColumn {
             return &i.foreign_table == dbi;
         }
 
-        return false;
+        false
     }
 
     pub fn column_priority(&self) -> i32 {
@@ -714,10 +714,7 @@ impl<'a> ConsistentStringDataframe<'a> {
     }
 
     pub fn column_by_name(&self, column_name: &str) -> Option<(usize, &ConsistentDataFrameColumn)> {
-        match self.column_index.get(column_name) {
-            Some(idx) => Some((*idx, &self.column_data[*idx])),
-            None => None,
-        }
+        self.column_index.get(column_name).map(|idx| (*idx, &self.column_data[*idx]))
     }
 }
 

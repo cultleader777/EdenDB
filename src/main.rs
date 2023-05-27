@@ -52,7 +52,7 @@ fn main() {
 
     for sqlite in &args.sqlite_output_file {
         let db = data.sqlite_db.ro.lock().unwrap();
-        let mut backup = rusqlite::Connection::open(&sqlite).unwrap();
+        let mut backup = rusqlite::Connection::open(sqlite).unwrap();
         let b = rusqlite::backup::Backup::new(&db, &mut backup).unwrap();
         b.run_to_completion(9999999, std::time::Duration::from_secs(0), None).unwrap();
     }

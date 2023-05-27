@@ -85,7 +85,7 @@ pub fn dump_as_bytes(vecs: &Vec<SerializationVector>) -> Vec<u8> {
 /// Returns uncompressed data and uncompressed data (to check assumptions in tests)
 fn dump_as_bytes_lz4_checksum_xxh(vecs: &Vec<SerializationVector>) -> (Vec<u8>, Vec<u8>) {
     let uncompressed = dump_as_bytes(vecs);
-    let mut compressed = lz4_flex::compress_prepend_size(&uncompressed.as_slice());
+    let mut compressed = lz4_flex::compress_prepend_size(uncompressed.as_slice());
     let hash = xxhash_rust::xxh3::xxh3_64(&compressed);
     bincode::serialize_into(&mut compressed, &hash).unwrap();
     (compressed, uncompressed)

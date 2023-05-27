@@ -33,7 +33,7 @@ impl Default for RustCodegen {
 impl CodeGenerator for RustCodegen {
     fn generate(&self, data: &crate::checker::logic::AllData) -> super::CodegenOutputs {
         let mut content = String::new();
-        let comp = RustCodegenCompute::new(data, &self);
+        let comp = RustCodegenCompute::new(data, self);
 
         content += r#"// Test db content
 const DB_BYTES: &[u8] = include_bytes!("edb_data.bin");
@@ -306,7 +306,7 @@ fn database_dump_function(output: &mut String, data: &AllData) {
         output.push_str("        }\n");
     }
     output.push_str("    }\n");
-    output.push_str("\n");
+    output.push('\n');
 }
 
 fn database_deserialization_function(output: &mut String, data: &AllData, vecs: &Vec<SerializationVector>, expose: bool) {
@@ -322,12 +322,12 @@ fn database_deserialization_function(output: &mut String, data: &AllData, vecs: 
     output.push_str("        let input = ::lz4_flex::decompress_size_prepended(compressed_slice).unwrap();\n");
     output.push_str("        Self::deserialize(input.as_slice())\n");
     output.push_str("    }\n");
-    output.push_str("\n");
+    output.push('\n');
     output.push_str("    ");
     if expose { output.push_str("pub ") };
     output.push_str("fn deserialize(input: &[u8]) -> Result<Database, Box<dyn ::std::error::Error>> {\n");
     output.push_str("        let mut cursor = ::std::io::Cursor::new(input);\n");
-    output.push_str("\n");
+    output.push('\n');
 
     struct ColumnVar<'a> {
         cvar: String,
@@ -419,7 +419,7 @@ fn database_deserialization_function(output: &mut String, data: &AllData, vecs: 
 
         if last_for_table {
             let last_var = column_vars.last().unwrap();
-            output.push_str("\n");
+            output.push('\n');
 
             let tlen_var = format!("{}_len", last_var.table_name);
             // table length var
@@ -429,7 +429,7 @@ fn database_deserialization_function(output: &mut String, data: &AllData, vecs: 
             output.push_str(" = ");
             output.push_str(&last_var.cvar);
             output.push_str(".len();\n");
-            output.push_str("\n");
+            output.push('\n');
 
 
             for i in &column_vars {
@@ -443,7 +443,7 @@ fn database_deserialization_function(output: &mut String, data: &AllData, vecs: 
                 }
             }
 
-            output.push_str("\n");
+            output.push('\n');
 
             // generate rows
             let trow_pascal = last_var.table_name.to_case(Case::Pascal);
@@ -485,13 +485,13 @@ fn database_deserialization_function(output: &mut String, data: &AllData, vecs: 
             output.push_str("            });\n");
             output.push_str("        }\n");
 
-            output.push_str("\n");
+            output.push('\n');
         }
     }
 
-    output.push_str("\n");
+    output.push('\n');
     output.push_str("        assert_eq!(cursor.position() as usize, input.len());\n");
-    output.push_str("\n");
+    output.push('\n');
     output.push_str("        Ok(Database {\n");
 
     for t in data.tables_sorted() {
@@ -682,9 +682,9 @@ fn main() {
     let src_dir = dir.join("src");
     std::fs::create_dir(&src_dir).unwrap();
     let cargo_toml = dir.join("Cargo.toml");
-    std::fs::write(&cargo_toml, cargo_toml_contents).unwrap();
+    std::fs::write(cargo_toml, cargo_toml_contents).unwrap();
     let main_rs = src_dir.join("main.rs");
-    std::fs::write(&main_rs, main_rs_contents).unwrap();
+    std::fs::write(main_rs, main_rs_contents).unwrap();
 
     src_dir
 }
@@ -719,7 +719,7 @@ fn assert_rust_db_compiled_dump_equals(source: &str, output_dump: &str) {
     assert!(output.status.success());
 
 
-    let out_res = String::from_utf8(output.stdout.clone()).unwrap();
+    let out_res = String::from_utf8(output.stdout).unwrap();
     pretty_assertions::assert_eq!(out_res, output_dump);
 }
 

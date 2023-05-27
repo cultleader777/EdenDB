@@ -56,7 +56,7 @@ pub fn assert_compiles_data_paths(source: &[String], expected_json: serde_json::
 
     let mut input = source.iter().map(|i| {
         let dir_path = i.to_string();
-        let mut p = std::fs::canonicalize(&dir_path).unwrap();
+        let mut p = std::fs::canonicalize(dir_path).unwrap();
         let pres = p.pop();
         assert!(pres);
         let p = p.as_path().to_str().unwrap().to_string();

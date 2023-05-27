@@ -19,6 +19,7 @@ pub struct TableColumn {
     pub is_primary_key: bool,
     pub child_primary_key: Option<String>,
     pub default_expression: Option<String>,
+    pub is_detached_default: bool,
     pub generated_expression: Option<String>,
 }
 
@@ -80,6 +81,14 @@ pub struct InputSource {
     pub source_dir: Option<String>,
 }
 
+impl TableColumn {
+    pub fn has_default_value(&self) -> bool {
+        // detached defaults with default expressions are mutually exclusive
+        assert!(!(self.default_expression.is_some() && self.is_detached_default));
+        self.default_expression.is_some() || self.is_detached_default
+    }
+}
+
 /// Reading external files is disabled, mainly for testing
 #[cfg(test)]
 pub fn parse_sources(input: &mut [InputSource]) -> Result<SourceOutputs, Box<dyn std::error::Error + '_>> {
@@ -113,6 +122,7 @@ pub fn parse_sources_inner(input: &mut [InputSource], read_external_files: bool)
         data_segments: vec![],
         sql_proofs: vec![],
         datalog_proofs: vec![],
+        detached_defaults: vec![],
     };
 
     let mut queue: VecDeque<SourceOutputs> = VecDeque::new();
@@ -173,7 +183,7 @@ fn maybe_read_input_source<'a>(seg: &'a mut InputSource, reading_ext_enabled: bo
             let path = seg.path.clone();
             let p = match &seg.source_dir {
                 Some(s) => std::fs::canonicalize(Path::new(s).to_path_buf().join(path.as_str())),
-                None => std::fs::canonicalize(Path::new(path.as_str()).to_path_buf()),
+                None => std::fs::canonicalize(Path::new(path.as_str())),
             };
             let mut p = p.map_err(|e| {
                 DatabaseValidationError::FailureReadingExternalFile {
@@ -223,6 +233,7 @@ pub struct SourceOutputs {
     data_segments: Vec<InputSource>,
     sql_proofs: Vec<ExpressionProof>,
     datalog_proofs: Vec<ExpressionProof>,
+    detached_defaults: Vec<DetachedDefaults>,
 }
 
 impl SourceOutputs {
@@ -233,6 +244,7 @@ impl SourceOutputs {
         self.data_segments.extend(to_merge.data_segments);
         self.sql_proofs.extend(to_merge.sql_proofs);
         self.datalog_proofs.extend(to_merge.datalog_proofs);
+        self.detached_defaults.extend(to_merge.detached_defaults);
     }
 
     pub fn table_definitions(&self) -> &[TableDefinition] {
@@ -254,6 +266,10 @@ impl SourceOutputs {
     pub fn datalog_proofs(&self) -> &[ExpressionProof] {
         &self.datalog_proofs
     }
+
+    pub fn detached_defaults(&self) -> &[DetachedDefaults] {
+        &self.detached_defaults
+    }
 }
 
 pub enum ValidExpressions {
@@ -268,6 +284,16 @@ pub struct ExpressionProof {
     pub expression_type: ValidExpressions,
 }
 
+pub struct DetachedDefaultDefinition {
+    pub table: String,
+    pub column: String,
+    pub value: String,
+}
+
+pub struct DetachedDefaults {
+    pub values: Vec<DetachedDefaultDefinition>,
+}
+
 enum ValidSourceSegments {
     TDef(TableDefinition),
     TData(TableData),
@@ -275,6 +301,7 @@ enum ValidSourceSegments {
     LuaSegment(InputSource),
     DataSegment(InputSource),
     ExpressionProof(ExpressionProof),
+    DetachedDefaults(DetachedDefaults),
 }
 
 pub type IResult<I, O, E=nom::error::VerboseError<I>> = Result<(I, O), nom::Err<E>>;
@@ -293,15 +320,17 @@ fn parse_source(input: &str) -> IResult<&str, SourceOutputs> {
         data_segments: vec![],
         sql_proofs: vec![],
         datalog_proofs: vec![],
+        detached_defaults: vec![],
     };
 
     let (tail, output) = many0(preceded(multispace0, alt((
         parse_include_segment,
-        map(parse_table, |t| ValidSourceSegments::TDef(t)),
-        map(parse_materialized_view, |t| ValidSourceSegments::TDef(t)),
-        map(parse_table_data, |t| ValidSourceSegments::TData(t)),
-        map(parse_table_data_structs, |t| ValidSourceSegments::TDataStruct(t)),
-        map(parse_sql_proof, |sp| ValidSourceSegments::ExpressionProof(sp)),
+        map(parse_table, ValidSourceSegments::TDef),
+        map(parse_materialized_view, ValidSourceSegments::TDef),
+        map(parse_table_data, ValidSourceSegments::TData),
+        map(parse_table_data_structs, ValidSourceSegments::TDataStruct),
+        map(parse_sql_proof, ValidSourceSegments::ExpressionProof),
+        map(parse_detached_defaults, ValidSourceSegments::DetachedDefaults),
     )))).parse(input)?;
 
     for i in output {
@@ -331,6 +360,9 @@ fn parse_source(input: &str) -> IResult<&str, SourceOutputs> {
                     },
                 }
             },
+            ValidSourceSegments::DetachedDefaults(dd) => {
+                res.detached_defaults.push(dd);
+            }
         }
     }
 
@@ -539,6 +571,46 @@ fn parse_sql_proof(input: &str) -> IResult<&str, ExpressionProof> {
     }))
 }
 
+fn parse_detached_defaults(input: &str) -> IResult<&str, DetachedDefaults> {
+    let (full_tail, (_, _, cb)) = tuple((
+        tag("DEFAULTS"),
+        multispace1,
+        curly_braces_expression,
+    )).parse(input)?;
+
+    let (_, (_, elems, ..)) = tuple((
+        multispace0,
+        separated_list1(
+            tuple((multispace0, char(','), multispace0)),
+            tuple((
+                valid_table_or_column_name,
+                char('.'),
+                valid_table_or_column_name,
+                multispace1,
+                parse_table_data_point,
+            )),
+        ),
+        opt(tuple((multispace0, char(',')))),
+        multispace0,
+    )).parse(cb)?;
+
+    let elems: Vec<(&str, char, &str, &str, &str)> = elems;
+
+    let mut res = DetachedDefaults {
+        values: Vec::new()
+    };
+
+    for (table_name, _, column_name, _, value) in elems {
+        res.values.push(DetachedDefaultDefinition {
+            table: table_name.to_string(),
+            column: column_name.to_string(),
+            value: value.to_string(),
+        });
+    }
+
+    Ok((full_tail, res))
+}
+
 fn parse_include_segment(input: &str) -> IResult<&str, ValidSourceSegments> {
     let (tail, (_, maybe_lang, _, src)) = tuple((
         tag("INCLUDE"),
@@ -597,12 +669,23 @@ fn parse_table_row(input: &str) -> IResult<&str, TableRowReturn> {
 }
 
 fn parse_table_column(input: &str) -> IResult<&str, TableRowReturn> {
+    enum DefaultVariant {
+        Hardcoded(String),
+        Detached,
+    }
+
     let (tail, (column_name, _, is_ref, column_type, maybe_default, is_generated, is_primary_key)) = tuple((
         valid_table_or_column_name,
         multispace1,
         opt(tuple((tag("REF"), multispace1, opt(tuple((opt(tuple((tag("FOREIGN"), multispace1))), tag("CHILD"), multispace1)))))),
         valid_table_or_column_name,
-        opt(tuple((multispace1, tag("DEFAULT"), multispace1, parse_table_data_point))),
+        opt(
+            alt((
+                tuple((multispace1, tag("DETACHED"), multispace1, tag("DEFAULT"))).map(|_| DefaultVariant::Detached ),
+                tuple((multispace1, tag("DEFAULT"), multispace1, parse_table_data_point))
+                    .map(|(_, _, _, v)| { DefaultVariant::Hardcoded(v.to_string()) }),
+            ))
+        ),
         opt(
             tuple((
                 multispace1, tag("GENERATED"), multispace1, tag("AS"), multispace1,
@@ -618,11 +701,11 @@ fn parse_table_column(input: &str) -> IResult<&str, TableRowReturn> {
     )).parse(input)?;
 
     let is_pkey = is_primary_key.is_some();
-    let maybe_child_prim_key = is_primary_key.map(|(_, _, _, _, chld)| {
+    let maybe_child_prim_key = is_primary_key.and_then(|(_, _, _, _, chld)| {
         chld.map(|(_, _, _, _, _, parent_name)| {
             parent_name.to_string()
         })
-    }).flatten();
+    });
     let maybe_generated = is_generated.map(|(_, _, _, _, _, gen)| gen.to_string());
 
     let is_reference_to_foreign_child_table = is_ref.map(|(_, _, child)| {
@@ -643,6 +726,16 @@ fn parse_table_column(input: &str) -> IResult<&str, TableRowReturn> {
         }
     }).unwrap_or(false);
 
+    let default_expression =
+        if let Some(DefaultVariant::Hardcoded(expr)) = &maybe_default {
+            Some(expr.to_string())
+        } else { None };
+
+    let is_detached_default =
+        if let Some(DefaultVariant::Detached) = maybe_default {
+            true
+        } else { false };
+
     Ok((tail, TableRowReturn::Col(TableColumn {
         name: column_name.to_owned(),
         the_type: column_type.to_owned(),
@@ -652,7 +745,8 @@ fn parse_table_column(input: &str) -> IResult<&str, TableRowReturn> {
         is_primary_key: is_pkey,
         child_primary_key: maybe_child_prim_key,
         generated_expression: maybe_generated,
-        default_expression: maybe_default.map(|(_, _, _, point)| { point.to_string() }),
+        default_expression,
+        is_detached_default,
     })))
 }
 
@@ -680,7 +774,7 @@ fn parse_table_uniq_constraint(input: &str) -> IResult<&str, TableRowReturn> {
         parse_bracket_field_list,
     )).parse(input)?;
 
-    let fields = lst.into_iter().map(|i| i.to_owned()).collect::<Vec<_>>();
+    let fields = lst.into_iter().collect::<Vec<_>>();
 
     Ok((tail, TableRowReturn::Constraint(UniqConstraint {
         fields,
@@ -739,7 +833,7 @@ fn valid_unquoted_data_char(c: char) -> bool {
         if c == vc { return true; }
     }
 
-    return false;
+    false
 }
 
 fn valid_unquoted_data_word(input: &str) -> IResult<&str, &str> {
@@ -852,7 +946,7 @@ fn parse_table_data_rows_with_inner(input: &str) -> IResult<&str, Vec<TableDataR
                 let extra_target_fields = maybe_column_labels.map(|cl| { cl.1 }).unwrap_or_default();
                 TableData {
                     target_table_name: extra_table.to_string(),
-                    target_fields: extra_target_fields.clone(),
+                    target_fields: extra_target_fields,
                     data: the_matrix,
                     is_exclusive: false,
                 }
@@ -1229,11 +1323,11 @@ fn test_parse_example_table() {
 
     assert_eq!(td.columns[0].name, "mnemonic");
     assert_eq!(td.columns[0].the_type, "String");
-    assert_eq!(td.columns[0].is_primary_key, true);
+    assert!(td.columns[0].is_primary_key);
 
     assert_eq!(td.columns[1].name, "full_name");
     assert_eq!(td.columns[1].the_type, "String");
-    assert_eq!(td.columns[1].is_primary_key, false);
+    assert!(!td.columns[1].is_primary_key);
 }
 
 #[test]
@@ -1259,27 +1353,27 @@ fn test_parse_uniq_constraint_table() {
 
     assert_eq!(td.columns[0].name, "name");
     assert_eq!(td.columns[0].the_type, "TEXT");
-    assert_eq!(td.columns[0].is_primary_key, false);
-    assert_eq!(td.columns[0].is_reference_to_other_table, false);
-    assert_eq!(td.columns[0].is_reference_to_foreign_child_table, false);
+    assert!(!td.columns[0].is_primary_key);
+    assert!(!td.columns[0].is_reference_to_other_table);
+    assert!(!td.columns[0].is_reference_to_foreign_child_table);
     assert_eq!(td.columns[0].default_expression, None);
 
     assert_eq!(td.columns[1].name, "ipv4");
     assert_eq!(td.columns[1].the_type, "TEXT");
-    assert_eq!(td.columns[1].is_primary_key, false);
-    assert_eq!(td.columns[1].is_reference_to_other_table, false);
+    assert!(!td.columns[1].is_primary_key);
+    assert!(!td.columns[1].is_reference_to_other_table);
     assert_eq!(td.columns[1].default_expression, None);
 
     assert_eq!(td.columns[2].name, "server");
     assert_eq!(td.columns[2].the_type, "servers");
-    assert_eq!(td.columns[2].is_primary_key, false);
-    assert_eq!(td.columns[2].is_reference_to_other_table, true);
+    assert!(!td.columns[2].is_primary_key);
+    assert!(td.columns[2].is_reference_to_other_table);
     assert_eq!(td.columns[2].default_expression, None);
 
     assert_eq!(td.columns[3].name, "some_def");
     assert_eq!(td.columns[3].the_type, "INT");
-    assert_eq!(td.columns[3].is_primary_key, false);
-    assert_eq!(td.columns[3].is_reference_to_other_table, false);
+    assert!(!td.columns[3].is_primary_key);
+    assert!(!td.columns[3].is_reference_to_other_table);
     assert_eq!(td.columns[3].default_expression, Some("3.14".to_string()));
 }
 

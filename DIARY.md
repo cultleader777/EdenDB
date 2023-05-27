@@ -285,3 +285,29 @@ DONE: REF FOREIGN CHILD and REF CHILD.
 
 Foreign child is when referring to the foreign child by the parent.
 REF CHILD is when referring to your own child.
+
+* 2023-05-27
+
+DONE: implement detached defaults
+
+Mark column as DETACHED DEFAULT in the table which must be provided as separate in the source
+
+Every detached default must be defined only once.
+
+Three errors added:
+1. Detached default not provided
+2. Detached default is wrong type
+3. Detached default defined more than once
+
+```
+TABLE server {
+  hostname TEXT PRIMARY KEY,
+  tld REF tld DETACHED DEFAULT,
+  something_else INT DETACHED DEFAULT,
+}
+
+DEFAULTS {
+    server.tld "epl-infra.net",
+    server.something_else 777,
+}
+```

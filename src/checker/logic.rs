@@ -262,10 +262,10 @@ impl AllData {
         res
     }
 
-    pub fn serialization_vectors<'a>(&'a self) -> Vec<SerializationVector<'a>> {
+    pub fn serialization_vectors(&self) -> Vec<SerializationVector<'_>> {
         // approximate column size
         let mut res = Vec::with_capacity(self.tables.len() * 8);
-        let mut table_refs = self.tables.iter().map(|i| i).collect::<Vec<_>>();
+        let mut table_refs = self.tables.iter().collect::<Vec<_>>();
         table_refs.sort_by_key(|i| i.name.as_str());
 
         for t in &table_refs {
@@ -437,7 +437,7 @@ fn maybe_load_lua_runtime(
     outputs: &SourceOutputs,
 ) -> Result<(), DatabaseValidationError> {
     let segments = outputs.lua_segments();
-    if segments.len() > 0 {
+    if !segments.is_empty() {
         let lua = res.lua_runtime.lock().unwrap();
 
         lua.load(lua_internal_library()).exec().expect("Standard lua runtime has bugs");
@@ -480,6 +480,7 @@ fn crunch_tables_metadata(
 ) -> Result<(), DatabaseValidationError> {
     init_all_declared_tables(res, outputs)?;
     validate_table_metadata_interconnections(res)?;
+    process_detached_defaults(res, outputs)?;
     assert_uniq_constraints_columns(res, outputs)?;
     assert_table_column_order(res)?;
     assert_key_types_in_table(res)?;
@@ -508,7 +509,7 @@ fn assert_row_vector_lengths_are_equal_for_all_tables(res: &AllData) {
         assert_eq!(v.len(), 1);
 
         // no point in having table without columns
-        assert!(t.columns.len() > 0);
+        assert!(!t.columns.is_empty());
     }
 }
 
@@ -838,11 +839,9 @@ fn run_datalog_proofs(
 }
 
 fn compute_materialized_views(res: &mut AllData) -> Result<(), DatabaseValidationError> {
-    let no_mat_views = res
+    let no_mat_views = !res
         .tables
-        .iter()
-        .find(|i| i.mat_view_expression.is_some())
-        .is_none();
+        .iter().any(|i| i.mat_view_expression.is_some());
     if no_mat_views {
         return Ok(());
     }
@@ -1020,7 +1019,7 @@ fn compute_materialized_views(res: &mut AllData) -> Result<(), DatabaseValidatio
             }
 
             // other mat views may depend on this mat view
-            insert_sqlite_data(&mview, &mut conn_rw)?;
+            insert_sqlite_data(mview, &mut conn_rw)?;
         }
     }
 
@@ -1172,8 +1171,7 @@ fn maybe_insert_sqlite_data(
         || res
             .tables
             .iter()
-            .find(|i| i.mat_view_expression.is_some())
-            .is_some();
+            .any(|i| i.mat_view_expression.is_some());
 
     if !sqlite_needed {
         return Ok(());
@@ -1360,12 +1358,12 @@ fn preprocess_lua_expression(inp_exp: &str) -> String {
         .collect::<Vec<_>>();
 
     // final statement returns otherwise
-    if lines.len() > 0 {
+    if !lines.is_empty() {
         let last_line = lines.len() - 1;
         lines[last_line] = format!("return {}", lines[last_line]);
-        return lines.join("\n");
+        lines.join("\n")
     } else {
-        return inp_exp.to_string();
+        inp_exp.to_string()
     }
 }
 
@@ -1803,7 +1801,7 @@ fn lua_value_to_string(lv: &mlua::Value) -> String {
         mlua::Value::Function(_) => "*lua function*".to_string(),
         mlua::Value::Thread(_) => "*lua thread*".to_string(),
         mlua::Value::UserData(_) => "*user data*".to_string(),
-        mlua::Value::Error(e) => format!("lua error: {}", e.to_string()),
+        mlua::Value::Error(e) => format!("lua error: {}", e),
     }
 }
 
@@ -1814,12 +1812,12 @@ fn lua_value_to_string_descriptive(lv: &mlua::Value) -> String {
         mlua::Value::LightUserData(_) => "*light user data*".to_string(),
         mlua::Value::Integer(i) => format!("integer {i}"),
         mlua::Value::Number(n) => format!("number {n}"),
-        mlua::Value::String(s) => format!("string \"{}\"", s.to_string_lossy().to_string()),
+        mlua::Value::String(s) => format!("string \"{}\"", s.to_string_lossy()),
         mlua::Value::Table(_) => "*lua table*".to_string(),
         mlua::Value::Function(_) => "*lua function*".to_string(),
         mlua::Value::Thread(_) => "*lua thread*".to_string(),
         mlua::Value::UserData(_) => "*user data*".to_string(),
-        mlua::Value::Error(e) => format!("lua error: {}", e.to_string()),
+        mlua::Value::Error(e) => format!("lua error: {}", e),
     }
 }
 
@@ -2032,7 +2030,7 @@ fn ensure_child_primary_keys_unique_per_table_and_fkeys_exist(
                                             referee_uniq_context.push(Vec::new());
                                         }
 
-                                        assert!(parent_table_names.len() > 0);
+                                        assert!(!parent_table_names.is_empty());
                                         for ptable in &parent_table_names {
                                             let expected_key = KeyType::ParentPrimaryKey { parent_table: ptable.clone() };
                                             for fk_parent_col in &fk_table.columns {
@@ -2229,7 +2227,7 @@ fn ensure_child_primary_keys_unique_per_table_and_fkeys_exist(
                                         }
 
                                         for (idx, k) in referee_parent_keys.into_iter().enumerate() {
-                                            let e = buckets_referee.entry(k).or_insert_with(|| HashMap::new());
+                                            let e = buckets_referee.entry(k).or_insert_with(HashMap::new);
                                             let joined_key = referee_segment_keys[idx].join("=>");
                                             let res = e.insert(joined_key, idx);
                                             // should all be unique at this point, earlier unique child checks should have triggered
@@ -2399,7 +2397,7 @@ fn ensure_child_primary_keys_unique_per_table_and_fkeys_exist(
                                         }
 
                                         for (idx, k) in referee_parent_keys.into_iter().enumerate() {
-                                            let e = buckets_referee.entry(k).or_insert_with(|| HashMap::new());
+                                            let e = buckets_referee.entry(k).or_insert_with(HashMap::new);
                                             let joined_key = referee_segment_keys[idx].join("=>");
                                             let res = e.insert(joined_key, idx);
                                             // should all be unique at this point, earlier unique child checks should have triggered
@@ -2584,7 +2582,7 @@ fn ensure_primary_keys_unique_per_table_and_fkeys_exist(
                     ColumnVector::Ints(vc) => {
                         let mut pkey_map = HashMap::new();
                         for (idx, k) in vc.v.iter().enumerate() {
-                            if pkey_map.insert(k.clone(), idx).is_some() {
+                            if pkey_map.insert(*k, idx).is_some() {
                                 return Err(DatabaseValidationError::DuplicatePrimaryKey {
                                     table_name: t.name.as_str().to_string(),
                                     value: format!("{k}"),
@@ -2737,14 +2735,11 @@ fn ensure_parent_primary_keys_exist_for_children(
                             tuple.push(columns_vec[column][row].clone());
                         }
 
-                        if parent_columns.len() > 0 {
+                        if !parent_columns.is_empty() {
                             let parent_tuple = tuple
                                 .split_last()
                                 .unwrap()
-                                .1
-                                .iter()
-                                .map(|i| i.clone())
-                                .collect::<Vec<_>>();
+                                .1.to_vec();
                             let _ = uniq_parents_by_child.insert(parent_tuple.clone());
                             uniq_parents_by_child_vec_idx.push(parent_tuple);
                         }
@@ -2853,7 +2848,7 @@ fn ensure_parent_primary_keys_exist_for_children(
                         }).collect::<Vec<_>>();
 
                     let mut children_for_parents_index: Vec<Vec<usize>> =
-                        std::iter::repeat_with(|| Vec::new())
+                        std::iter::repeat_with(Vec::new)
                             .take(last_parent_table.len())
                             .collect();
 
@@ -2966,7 +2961,7 @@ fn init_all_declared_tables(
         let mut columns = Vec::with_capacity(tbl.columns.len());
         for i in tbl.columns.iter() {
             if is_mat_view {
-                if i.default_expression.is_some() {
+                if i.has_default_value() {
                     return Err(DatabaseValidationError::MaterializedViewsCannotHaveDefaultColumnExpression {
                         table_name: tbl.name.clone(),
                         column_name: i.name.clone(),
@@ -3013,6 +3008,82 @@ fn init_all_declared_tables(
             mat_view_expression: tbl.mat_view_expression.clone(),
             exclusive_lock: false,
         })
+    }
+
+    Ok(())
+}
+
+fn process_detached_defaults(res: &mut AllData, so: &SourceOutputs) -> Result<(), DatabaseValidationError> {
+    let dd_iter = || {
+        so.detached_defaults()
+            .into_iter()
+            .map(|i| i.values.iter())
+            .flatten()
+    };
+
+    let mut processed_defaults: HashMap<String, String> = HashMap::new();
+    for dd in dd_iter() {
+        let table = DBIdentifier::new(&dd.table)?;
+        let column = DBIdentifier::new(&dd.column)?;
+        let found_tbl = res.find_table_named_idx(&table);
+
+        if found_tbl.is_empty() {
+            return Err(DatabaseValidationError::DetachedDefaultNonExistingTable {
+                table: dd.table.clone(),
+                column: dd.column.clone(),
+                expression: dd.value.clone(),
+            });
+        }
+
+        assert_eq!(found_tbl.len(), 1);
+
+        match res.tables[0].columns.iter_mut().find(|i| i.column_name == column) {
+            Some(col) => {
+                let key = format!("{}.{}", dd.table, dd.column);
+                let processed = processed_defaults.insert(key, dd.value.clone());
+                if let Some(expr) = processed {
+                    return Err(DatabaseValidationError::DetachedDefaultDefinedMultipleTimes {
+                        table: dd.table.clone(),
+                        column: dd.column.clone(),
+                        expression_a: expr,
+                        expression_b: dd.value.clone(),
+                    });
+                }
+
+                // default value must not already be set now
+                assert!(!col.data.has_default_value());
+
+                let is_ok = col.data.try_set_default_value_from_string(&dd.value);
+                if !is_ok {
+                    return Err(DatabaseValidationError::DetachedDefaultBadValue {
+                        table: dd.table.clone(),
+                        column: dd.column.clone(),
+                        value: dd.value.clone(),
+                        expected_type: col.data.column_type(),
+                        error: "Cannot parse value to expected type for this column".to_string(),
+                    });
+                }
+            }
+            None => {
+                return Err(DatabaseValidationError::DetachedDefaultNonExistingColumn {
+                    table: dd.table.clone(),
+                    column: dd.column.clone(),
+                    expression: dd.value.clone(),
+                });
+            }
+        }
+    }
+
+    for td in so.table_definitions() {
+        for col in &td.columns {
+            let key = format!("{}.{}", td.name, col.name);
+            if col.is_detached_default && !processed_defaults.contains_key(&key) {
+                return Err(DatabaseValidationError::DetachedDefaultUndefined {
+                    table: td.name.clone(),
+                    column: col.name.clone(),
+                });
+            }
+        }
     }
 
     Ok(())
@@ -3629,8 +3700,7 @@ fn validate_child_primary_keys(res: &mut AllData) -> Result<(), DatabaseValidati
             if let KeyType::ChildPrimaryKey { parent_table } = &col.key_type {
                 let mut child_stack: Vec<String> = vec![cpk.name.as_str().to_string()];
                 let mut check_set = child_stack
-                    .iter()
-                    .map(|i| i.clone())
+                    .iter().cloned()
                     .collect::<HashSet<String>>();
 
                 find_child_primary_keys_recursive_loop(
@@ -3710,9 +3780,9 @@ fn find_child_primary_keys_recursive_loop(
     child_stack.push(next_table.to_string());
 
     if !check_set.insert(next_table.to_string()) {
-        return Err(DatabaseValidationError::ChildPrimaryKeysLoopDetected {
+        Err(DatabaseValidationError::ChildPrimaryKeysLoopDetected {
             table_names: child_stack.clone(),
-        });
+        })
     } else {
         let parent_tables: Vec<_> = res
             .tables
@@ -4038,7 +4108,7 @@ fn maybe_insert_lua_data(res: &mut AllData, outputs: &SourceOutputs) -> Result<(
 
     let segments = outputs.lua_segments();
     let mut maps_to_push = Vec::new();
-    if segments.len() > 0 {
+    if !segments.is_empty() {
         let lua = res.lua_runtime.lock().unwrap();
 
         // if someone modified this variable in lua and it panics its their fault
@@ -4198,7 +4268,7 @@ fn insert_extra_data_structured(
                 });
             }
 
-            assert!(parent_implicit_primary_column_idx.len() > 0);
+            assert!(!parent_implicit_primary_column_idx.is_empty());
 
             let primary_parent_column_names = parent_implicit_primary_column_idx
                 .iter()
@@ -4348,8 +4418,7 @@ fn insert_extra_data_structured(
                             let found =
                                 this_row_primary_key_values
                                     .iter()
-                                    .find(|i| i.key == col.column_name.as_str())
-                                    .is_some();
+                                    .any(|i| i.key == col.column_name.as_str());
                             if !found {
                                 match row.value_fields.iter().find(|i| i.key == col.column_name.as_str()) {
                                     Some(v) => {
@@ -4450,7 +4519,7 @@ fn insert_extra_data_dataframes(
                 });
             }
 
-            assert!(parent_implicit_primary_column_idx.len() > 0);
+            assert!(!parent_implicit_primary_column_idx.is_empty());
 
             let this_main_df_primary_key_columns: Vec<usize>;
             let primary_parent_column_names = parent_implicit_primary_column_idx
@@ -4463,7 +4532,7 @@ fn insert_extra_data_dataframes(
 
             let new_key_stack_item;
 
-            if ds.target_fields.len() > 0 {
+            if !ds.target_fields.is_empty() {
                 this_main_df_primary_key_columns = ds
                     .target_fields
                     .iter()
@@ -4543,8 +4612,7 @@ fn insert_extra_data_dataframes(
                         let found =
                             this_row_primary_key_values
                                 .iter()
-                                .find(|i| i.key == col.column_name.as_str())
-                                .is_some();
+                                .any(|i| i.key == col.column_name.as_str());
                         if !found {
                             match tfields.iter().enumerate().find(|i| i.1 == col.column_name.as_str()) {
                                 Some((cidx, _)) => {
@@ -4612,7 +4680,7 @@ fn insert_extra_data_dataframes(
                 // extra table MUST have a single foreign key as primary key of this table
                 {
                     let mut target_fields = extra.target_fields.clone();
-                    let has_fields_set = extra.target_fields.len() > 0;
+                    let has_fields_set = !extra.target_fields.is_empty();
 
                     let insertion_mode = res.tables[parent_table_idx]
                         .determine_nested_insertion_mode(&res.tables[extra_table_idx]);
@@ -4669,14 +4737,10 @@ fn insert_extra_data_dataframes(
                                 for (_, col) in
                                     res.tables[extra_table_idx].default_tuple_order().iter()
                                 {
-                                    let undefined_in_stack = this_row_primary_key_values
-                                        .iter()
-                                        .find(|i| i.key == col.column_name.as_str())
-                                        .is_none();
-                                    let undefined_in_fk = target_fields
-                                        .iter()
-                                        .find(|i| i.as_str() == col.column_name.as_str())
-                                        .is_none();
+                                    let undefined_in_stack = !this_row_primary_key_values
+                                        .iter().any(|i| i.key == col.column_name.as_str());
+                                    let undefined_in_fk = !target_fields
+                                        .iter().any(|i| i.as_str() == col.column_name.as_str());
                                     if undefined_in_fk && undefined_in_stack {
                                         target_fields.push(col.column_name.as_str().to_string());
                                     }
@@ -4715,10 +4779,8 @@ fn insert_extra_data_dataframes(
                                 for (_, col) in
                                     res.tables[extra_table_idx].default_tuple_order().iter()
                                 {
-                                    let not_yet_defined = this_row_primary_key_values
-                                        .iter()
-                                        .find(|i| i.key == col.column_name.as_str())
-                                        .is_none();
+                                    let not_yet_defined = !this_row_primary_key_values
+                                        .iter().any(|i| i.key == col.column_name.as_str());
                                     if not_yet_defined {
                                         target_fields.push(col.column_name.as_str().to_string());
                                     }
@@ -4812,7 +4874,7 @@ fn map_parsed_column_to_data_column(
 ) -> Result<DataColumn, DatabaseValidationError> {
     let column_name = DBIdentifier::new(input.name.as_str())?;
     let forbid_default_value = || {
-        if input.default_expression.is_some() {
+        if input.has_default_value() {
             return Err(
                 DatabaseValidationError::PrimaryKeysCannotHaveDefaultValue {
                     table_name: table_name.to_string(),
@@ -4917,17 +4979,17 @@ fn map_parsed_column_to_data_column(
         },
     };
 
+    if input.has_default_value() && input.generated_expression.is_some() {
+        return Err(
+            DatabaseValidationError::DefaultValueAndComputedValueAreMutuallyExclusive {
+                table_name: table_name.to_string(),
+                column_name: column_name.as_str().to_string(),
+            },
+        );
+    }
+
     match &input.default_expression {
         Some(input_value) => {
-            if input.generated_expression.is_some() {
-                return Err(
-                    DatabaseValidationError::DefaultValueAndComputedValueAreMutuallyExclusive {
-                        table_name: table_name.to_string(),
-                        column_name: column_name.as_str().to_string(),
-                    },
-                );
-            }
-
             let is_ok = data.try_set_default_value_from_string(input_value.as_str());
             if !is_ok {
                 return Err(DatabaseValidationError::CannotParseDefaultColumnValue {
@@ -4984,7 +5046,7 @@ fn validate_table_definition(td: &TableDefinition) -> Option<DatabaseValidationE
         }
 
         for (reserved, check) in reserved_table_column_names() {
-            if check(i.name.as_str(), *reserved) {
+            if check(i.name.as_str(), reserved) {
                 return Some(DatabaseValidationError::ColumnNameIsReserved {
                     table_name: td.name.clone(),
                     column_name: i.name.clone(),
@@ -5009,7 +5071,7 @@ fn validate_table_definition(td: &TableDefinition) -> Option<DatabaseValidationE
         });
     }
 
-    if pkeys_idx.len() > 0 && pkeys_idx[0] != 0 {
+    if !pkeys_idx.is_empty() && pkeys_idx[0] != 0 {
         return Some(DatabaseValidationError::PrimaryKeyColumnMustBeFirst {
             table_name: td.name.clone(),
             column_name: td.columns[pkeys_idx[0]].name.clone(),

@@ -512,6 +512,33 @@ pub enum DatabaseValidationError {
         column_name: String,
         column_value: String,
     },
+    DetachedDefaultUndefined {
+        table: String,
+        column: String,
+    },
+    DetachedDefaultDefinedMultipleTimes {
+        table: String,
+        column: String,
+        expression_a: String,
+        expression_b: String,
+    },
+    DetachedDefaultNonExistingTable {
+        table: String,
+        column: String,
+        expression: String,
+    },
+    DetachedDefaultNonExistingColumn {
+        table: String,
+        column: String,
+        expression: String,
+    },
+    DetachedDefaultBadValue {
+        table: String,
+        column: String,
+        value: String,
+        expected_type: DBType,
+        error: String,
+    },
 }
 
 impl std::fmt::Display for DatabaseValidationError {

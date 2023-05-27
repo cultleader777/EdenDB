@@ -26,7 +26,7 @@ impl Default for OCamlCodegen {
 impl CodeGenerator for OCamlCodegen {
     fn generate(&self, data: &crate::checker::logic::AllData) -> super::CodegenOutputs {
         let mut impl_content = String::with_capacity(1024);
-        let comp = OcamlCodegenCompute::new(data, &self);
+        let comp = OcamlCodegenCompute::new(data, self);
 
         impl_content += r#"(* DB bytes *)
 let data_blob = [%blob "edb_data.bin"]
@@ -282,7 +282,7 @@ fn table_structs(data: &AllData, with_yojson: bool, ser_vecs: &Vec<Serialization
                 };
 
                 output += "  ";
-                output += &cname;
+                output += cname;
                 output += ": ";
                 output += &ctype;
                 output += ";\n";
@@ -463,7 +463,7 @@ fn deserialization_function(data: &AllData, vecs: &Vec<SerializationVector>) -> 
         column_vars.push(cv);
         if last_for_table {
             let last_var = column_vars.last().unwrap();
-            output.push_str("\n");
+            output.push('\n');
 
             let tlen_var = format!("{}_len", last_var.table_name);
             let tlen_expr = format!("  let {} = Array.length {} in\n", tlen_var, last_var.cvar);
@@ -478,7 +478,7 @@ fn deserialization_function(data: &AllData, vecs: &Vec<SerializationVector>) -> 
                 }
             }
 
-            output.push_str("\n");
+            output.push('\n');
         }
     }
 
@@ -524,7 +524,7 @@ fn deserialization_function(data: &AllData, vecs: &Vec<SerializationVector>) -> 
         output.push_str(&row_ids_vname);
         output.push_str("  in\n");
 
-        output.push_str("\n");
+        output.push('\n');
 
         // generate table definition
         output.push_str("  let ");
@@ -559,7 +559,7 @@ fn deserialization_function(data: &AllData, vecs: &Vec<SerializationVector>) -> 
         }
 
         output.push_str("  } in\n");
-        output.push_str("\n");
+        output.push('\n');
     }
 
     output += "  assert (String.length buffer = !cursor);\n";
@@ -572,7 +572,7 @@ fn deserialization_function(data: &AllData, vecs: &Vec<SerializationVector>) -> 
       output.push_str(";\n");
     }
     output.push_str("  }\n");
-    output.push_str("\n");
+    output.push('\n');
 
     output
 }
@@ -624,11 +624,11 @@ let () =
     std::fs::create_dir(&src_dir).unwrap();
 
     let cargo_toml = dir.join("dune-project");
-    std::fs::write(&cargo_toml, dune_project_contents).unwrap();
+    std::fs::write(cargo_toml, dune_project_contents).unwrap();
     let main_rs = src_dir.join("main.ml");
-    std::fs::write(&main_rs, main_ml_contents).unwrap();
+    std::fs::write(main_rs, main_ml_contents).unwrap();
     let dune_file = src_dir.join("dune");
-    std::fs::write(&dune_file, dune_file_contents).unwrap();
+    std::fs::write(dune_file, dune_file_contents).unwrap();
 
     src_dir
 }
@@ -668,7 +668,7 @@ fn assert_ocaml_db_compiled_dump_equals(source: &str, output_dump: &str) {
     assert!(output.status.success());
 
 
-    let out_res = String::from_utf8(output.stdout.clone()).unwrap();
+    let out_res = String::from_utf8(output.stdout).unwrap();
     pretty_assertions::assert_eq!(out_res, output_dump);
 }
 
