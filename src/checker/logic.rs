@@ -3036,8 +3036,8 @@ fn process_detached_defaults(res: &mut AllData, so: &SourceOutputs) -> Result<()
         }
 
         assert_eq!(found_tbl.len(), 1);
-
-        match res.tables[0].columns.iter_mut().find(|i| i.column_name == column) {
+        let tbl_idx = found_tbl[0];
+        match res.tables[tbl_idx].columns.iter_mut().find(|i| i.column_name == column) {
             Some(col) => {
                 let key = format!("{}.{}", dd.table, dd.column);
                 let processed = processed_defaults.insert(key, dd.value.clone());
