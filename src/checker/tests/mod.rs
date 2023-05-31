@@ -8,6 +8,7 @@ mod integration;
 mod lua_column_checks;
 mod lua_data_insertion;
 mod lua_generated_columns;
+mod lua_multifile;
 mod main;
 mod regression;
 mod sql_materialized_views;

@@ -443,13 +443,21 @@ fn maybe_load_lua_runtime(
         lua.load(lua_internal_library()).exec().expect("Standard lua runtime has bugs");
 
         for s in segments {
-            lua.load(s.contents.as_ref().unwrap()).exec().map_err(|e| {
+            if let Some(sd) = &s.source_dir {
+                let lstr = lua.create_string(sd.as_bytes()).unwrap();
+                lua.globals().set("SOURCE_DIR", mlua::Value::String(lstr)).unwrap();
+            }
+            let c = lua.load(s.contents.as_ref().unwrap())
+                .set_name(s.path.as_str()).unwrap();
+            c.exec().map_err(|e| {
                 DatabaseValidationError::LuaSourcesLoadError {
                     error: e.to_string(),
                     source_file: s.path.clone(),
                 }
             })?
         }
+
+        lua.globals().raw_remove("SOURCE_DIR").unwrap();
     }
 
     Ok(())
