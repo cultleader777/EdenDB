@@ -1,13 +1,13 @@
 #[cfg(test)]
-use serde_json::json;
-#[cfg(test)]
-use crate::checker::errors::DatabaseValidationError;
-#[cfg(test)]
 use super::common::assert_compiles_data;
 #[cfg(test)]
 use super::common::assert_test_validaton_exception;
 #[cfg(test)]
 use super::common::assert_test_validaton_exception_return_error;
+#[cfg(test)]
+use crate::checker::errors::DatabaseValidationError;
+#[cfg(test)]
+use serde_json::json;
 
 #[test]
 fn test_lua_computed_column_cannot_be_primary_key() {
@@ -195,7 +195,8 @@ fn test_lua_computed_column_wrong_type_text() {
             input_row_values: vec!["1".to_string()],
             expression: " id + 1 ".to_string(),
             computed_value: "2".to_string(),
-            error: "Computed column expects lua expression to evaluate to type string, got integer".to_string(),
+            error: "Computed column expects lua expression to evaluate to type string, got integer"
+                .to_string(),
         },
         r#"
 TABLE cholo {
@@ -221,7 +222,8 @@ fn test_lua_computed_column_wrong_type_integer() {
             input_row_values: vec!["1".to_string()],
             expression: " \"hello \" .. id ".to_string(),
             computed_value: "hello 1".to_string(),
-            error: "Computed column expects lua expression to evaluate to type integer, got string".to_string(),
+            error: "Computed column expects lua expression to evaluate to type integer, got string"
+                .to_string(),
         },
         r#"
 TABLE cholo {
@@ -246,7 +248,8 @@ fn test_lua_computed_column_wrong_type_float_from_int() {
             input_row_fields: vec!["id".to_string()],
             input_row_values: vec!["1".to_string()],
             expression: " id * 1.5 ".to_string(),
-            error: "Computed column expects lua expression to evaluate to type integer, got number".to_string(),
+            error: "Computed column expects lua expression to evaluate to type integer, got number"
+                .to_string(),
             computed_value: "1.5".to_string(),
         },
         r#"
@@ -263,7 +266,6 @@ DATA cholo {
     );
 }
 
-
 #[test]
 fn test_lua_computed_column_wrong_type_float() {
     assert_test_validaton_exception(
@@ -274,7 +276,8 @@ fn test_lua_computed_column_wrong_type_float() {
             input_row_values: vec!["1".to_string()],
             expression: " nil ".to_string(),
             computed_value: "nil".to_string(),
-            error: "Computed column expects lua expression to evaluate to type number, got nil".to_string(),
+            error: "Computed column expects lua expression to evaluate to type number, got nil"
+                .to_string(),
         },
         r#"
 TABLE cholo {
@@ -300,7 +303,8 @@ fn test_lua_computed_column_wrong_type_nil() {
             input_row_values: vec!["1".to_string()],
             expression: " nil ".to_string(),
             computed_value: "nil".to_string(),
-            error: "Computed column expects lua expression to evaluate to type string, got nil".to_string(),
+            error: "Computed column expects lua expression to evaluate to type string, got nil"
+                .to_string(),
         },
         r#"
 TABLE cholo {
@@ -332,12 +336,20 @@ DATA cholo {
         "#,
     );
 
-    if let DatabaseValidationError::LuaColumnGenerationExpressionLoadError { table_name, column_name, expression, error } = e {
+    if let DatabaseValidationError::LuaColumnGenerationExpressionLoadError {
+        table_name,
+        column_name,
+        expression,
+        error,
+    } = e
+    {
         assert_eq!(table_name, "cholo");
         assert_eq!(column_name, "computed_text");
         assert_eq!(expression, " not a valid lua ");
         assert!(error.contains("syntax error"));
-    } else { panic!() }
+    } else {
+        panic!()
+    }
 }
 
 #[test]
@@ -365,15 +377,18 @@ DATA cholo {
         input_row_fields,
         input_row_values,
         expression,
-        error
-    } = e {
+        error,
+    } = e
+    {
         assert_eq!(table_name, "cholo");
         assert_eq!(column_name, "computed_text_2");
         assert_eq!(input_row_fields, vec!["id".to_string()]);
         assert_eq!(input_row_values, vec!["1".to_string()]);
         assert_eq!(expression, " computed_text .. \"!\" ");
         assert!(error.contains("attempt to concatenate global 'computed_text' (a nil value)"));
-    } else { panic!() }
+    } else {
+        panic!()
+    }
 }
 
 #[test]

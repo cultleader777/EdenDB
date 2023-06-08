@@ -10,6 +10,7 @@ in pkgs.mkShell {
     pkgs.clippy
     pkgs.luajit
     pkgs.binutils
+    pkgs.clippy
 
     pkgs.ocaml
     pkgs.ocamlPackages.findlib

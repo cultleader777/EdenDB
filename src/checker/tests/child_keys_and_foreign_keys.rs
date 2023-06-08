@@ -1,11 +1,11 @@
 #[cfg(test)]
-use serde_json::json;
-#[cfg(test)]
 use super::common::assert_compiles_data;
+#[cfg(test)]
+use super::common::assert_test_validaton_exception;
 #[cfg(test)]
 use crate::checker::errors::DatabaseValidationError;
 #[cfg(test)]
-use super::common::assert_test_validaton_exception;
+use serde_json::json;
 
 #[test]
 fn test_child_key_can_be_foreign_key() {
@@ -35,7 +35,7 @@ DATA other_table {
             "other_table":[
                 {"other_key":"point_to"},
             ],
-        })
+        }),
     );
 }
 
@@ -113,6 +113,6 @@ DATA existant_parent {
             "good_ref":[
                 {"some_key":"outer_val", "ref_key": "inner_val=>more_inner_val"},
             ],
-        })
+        }),
     );
 }

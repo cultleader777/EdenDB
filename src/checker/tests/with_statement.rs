@@ -1,11 +1,11 @@
 #[cfg(test)]
-use serde_json::json;
-#[cfg(test)]
-use crate::checker::errors::DatabaseValidationError;
+use super::common::assert_compiles_data;
 #[cfg(test)]
 use super::common::assert_test_validaton_exception;
 #[cfg(test)]
-use super::common::assert_compiles_data;
+use crate::checker::errors::DatabaseValidationError;
+#[cfg(test)]
+use serde_json::json;
 
 #[test]
 fn test_validation_exception_data_exta_data_parent_must_have_pkey() {
@@ -149,7 +149,6 @@ DATA cholo {
     );
 }
 
-
 #[test]
 fn test_dataframe_data_no_fields_set_fk() {
     assert_compiles_data(
@@ -176,7 +175,7 @@ DATA simple_table {
             "dummy_table": [
                 {"other_field": "chololo", "st": "trololo"},
             ],
-        })
+        }),
     );
 }
 
@@ -208,7 +207,7 @@ DATA simple_table {
             "dummy_table": [
                 {"other_field": "chololo", "st": "trololo", "col_1": 1.0, "col_2": 2.0},
             ],
-        })
+        }),
     );
 }
 
@@ -234,7 +233,7 @@ DATA simple_table {
         chololo, mooo
     }
 }
-        "#
+        "#,
     );
 }
 
@@ -321,7 +320,7 @@ DATA simple_table(some_field, ot) {
         }
     }
 }
-        "#
+        "#,
     );
 }
 
@@ -361,7 +360,7 @@ DATA server {
             "cpu": [
                 {"hostname": "mclassen", "cpu_slot": 0.0},
             ],
-        })
+        }),
     );
 }
 
@@ -396,7 +395,7 @@ DATA server {
                 {"hostname": "mclassen", "dev_slot": "/dev/sda", "other_server": "doofus"},
                 {"hostname": "doofus", "dev_slot": "/dev/sda", "other_server": "mclassen"},
             ],
-        })
+        }),
     );
 }
 
@@ -431,7 +430,7 @@ DATA server {
                 {"hostname": "mclassen", "dev_slot": "/dev/sda", "other_server": "doofus"},
                 {"hostname": "doofus", "dev_slot": "/dev/sda", "other_server": "mclassen"},
             ],
-        })
+        }),
     );
 }
 
@@ -533,7 +532,7 @@ DATA server {
                 {"hostname": "mclassen", "dev_slot": "/dev/sda", "part": 1.0, "sec": 100.0},
                 {"hostname": "mclassen", "dev_slot": "/dev/sdb", "part": 2.0, "sec": 200.0},
             ]
-        })
+        }),
     );
 }
 
@@ -564,7 +563,7 @@ DATA server {
                 {"hostname": "mclassen", "dev_slot": "/dev/sda"},
                 {"hostname": "mclassen", "dev_slot": "/dev/sdb"},
             ]
-        })
+        }),
     );
 }
 

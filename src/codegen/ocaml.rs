@@ -4,8 +4,6 @@ use crate::checker::{logic::AllData, types::SerializationVector};
 
 use super::{CodeGenerator, CodegenOutputFile};
 
-
-
 pub struct OCamlCodegen {
     pub debug_dump_function: bool,
     pub edb_data_file_name: String,
@@ -122,11 +120,7 @@ let data_blob = [%blob "edb_data.bin"]
 
         super::CodegenOutputs {
             uncompressed_edb_data: comp.uncompressed_data_bytes,
-            files: vec![
-                impl_src,
-                mli_src,
-                data_src,
-            ],
+            files: vec![impl_src, mli_src, data_src],
         }
     }
 }
@@ -231,20 +225,24 @@ let fetch_i64_nested_vector =
 "#
 }
 
-fn table_pointer_types(data: &AllData, with_implementation: bool, with_yojson: bool) -> Vec<String> {
+fn table_pointer_types(
+    data: &AllData,
+    with_implementation: bool,
+    with_yojson: bool,
+) -> Vec<String> {
     let mut res = Vec::with_capacity(data.tables.len());
     for t in data.tables_sorted() {
         let mut output = String::new();
         output += &format!("type table_row_pointer_{}", t.name.as_str());
         if with_implementation {
-          let tname_pasc_case = t.name.as_str().to_case(Case::Pascal);
-          output += " = TableRowPointer";
-          output += &tname_pasc_case;
-          output += " of int";
+            let tname_pasc_case = t.name.as_str().to_case(Case::Pascal);
+            output += " = TableRowPointer";
+            output += &tname_pasc_case;
+            output += " of int";
 
-          if with_yojson {
-            output += " [@@deriving yojson]";
-          }
+            if with_yojson {
+                output += " [@@deriving yojson]";
+            }
         }
 
         res.push(output);
@@ -252,7 +250,11 @@ fn table_pointer_types(data: &AllData, with_implementation: bool, with_yojson: b
     res
 }
 
-fn table_structs(data: &AllData, with_yojson: bool, ser_vecs: &Vec<SerializationVector>) -> Vec<String> {
+fn table_structs(
+    data: &AllData,
+    with_yojson: bool,
+    ser_vecs: &Vec<SerializationVector>,
+) -> Vec<String> {
     let mut res = Vec::with_capacity(data.tables.len());
     for t in data.tables_sorted() {
         let mut output = String::new();
@@ -261,24 +263,29 @@ fn table_structs(data: &AllData, with_yojson: bool, ser_vecs: &Vec<Serialization
         for sv in ser_vecs {
             if sv.table_name() == t.name.as_str() {
                 let (cname, ctype) = match sv {
-                    crate::checker::types::SerializationVector::StringsColumn(sv) => {
+                    crate::checker::types::SerializationVector::Strings(sv) => {
                         (&sv.column_name, "string".to_string())
-                    },
-                    crate::checker::types::SerializationVector::IntsColumn(sv) => {
+                    }
+                    crate::checker::types::SerializationVector::Ints(sv) => {
                         (&sv.column_name, "int".to_string())
-                    },
-                    crate::checker::types::SerializationVector::FloatsColumn(sv) => {
+                    }
+                    crate::checker::types::SerializationVector::Floats(sv) => {
                         (&sv.column_name, "float".to_string())
-                    },
-                    crate::checker::types::SerializationVector::BoolsColumn(sv) => {
+                    }
+                    crate::checker::types::SerializationVector::Bools(sv) => {
                         (&sv.column_name, "bool".to_string())
-                    },
-                    crate::checker::types::SerializationVector::FkeysColumn { sv, foreign_table } => {
-                        (&sv.column_name, format!("table_row_pointer_{}", foreign_table))
-                    },
-                    crate::checker::types::SerializationVector::FkeysOneToManyColumn { sv, foreign_table } => {
-                        (&sv.column_name, format!("table_row_pointer_{} list", foreign_table))
-                    },
+                    }
+                    crate::checker::types::SerializationVector::Fkeys { sv, foreign_table } => (
+                        &sv.column_name,
+                        format!("table_row_pointer_{}", foreign_table),
+                    ),
+                    crate::checker::types::SerializationVector::FkeysOneToMany {
+                        sv,
+                        foreign_table,
+                    } => (
+                        &sv.column_name,
+                        format!("table_row_pointer_{} list", foreign_table),
+                    ),
                 };
 
                 output += "  ";
@@ -304,30 +311,54 @@ fn table_definitions(data: &AllData, ser_vecs: &Vec<SerializationVector>) -> Vec
         let mut output = String::new();
         output += &format!("type table_definition_{} = {{\n", t.name.as_str());
         output += "  length: int;\n";
-        output += &format!("  iter: (table_row_pointer_{} -> unit) -> unit;\n", t.name.as_str());
-        output += &format!("  row: table_row_pointer_{} -> table_row_{};\n", t.name.as_str(), t.name.as_str());
+        output += &format!(
+            "  iter: (table_row_pointer_{} -> unit) -> unit;\n",
+            t.name.as_str()
+        );
+        output += &format!(
+            "  row: table_row_pointer_{} -> table_row_{};\n",
+            t.name.as_str(),
+            t.name.as_str()
+        );
 
         for sv in ser_vecs {
             if sv.table_name() == t.name.as_str() {
                 let (cname, ctype) = match sv {
-                    crate::checker::types::SerializationVector::StringsColumn(sv) => {
-                        (&sv.column_name, format!("table_row_pointer_{} -> string", t.name.as_str()))
-                    },
-                    crate::checker::types::SerializationVector::IntsColumn(sv) => {
-                        (&sv.column_name, format!("table_row_pointer_{} -> int", t.name.as_str()))
-                    },
-                    crate::checker::types::SerializationVector::FloatsColumn(sv) => {
-                        (&sv.column_name, format!("table_row_pointer_{} -> float", t.name.as_str()))
-                    },
-                    crate::checker::types::SerializationVector::BoolsColumn(sv) => {
-                        (&sv.column_name, format!("table_row_pointer_{} -> bool", t.name.as_str()))
-                    },
-                    crate::checker::types::SerializationVector::FkeysColumn { sv, foreign_table } => {
-                        (&sv.column_name, format!("table_row_pointer_{} -> table_row_pointer_{}", t.name.as_str(), foreign_table))
-                    },
-                    crate::checker::types::SerializationVector::FkeysOneToManyColumn { sv, foreign_table } => {
-                        (&sv.column_name, format!("table_row_pointer_{} -> table_row_pointer_{} list", t.name.as_str(), foreign_table))
-                    },
+                    crate::checker::types::SerializationVector::Strings(sv) => (
+                        &sv.column_name,
+                        format!("table_row_pointer_{} -> string", t.name.as_str()),
+                    ),
+                    crate::checker::types::SerializationVector::Ints(sv) => (
+                        &sv.column_name,
+                        format!("table_row_pointer_{} -> int", t.name.as_str()),
+                    ),
+                    crate::checker::types::SerializationVector::Floats(sv) => (
+                        &sv.column_name,
+                        format!("table_row_pointer_{} -> float", t.name.as_str()),
+                    ),
+                    crate::checker::types::SerializationVector::Bools(sv) => (
+                        &sv.column_name,
+                        format!("table_row_pointer_{} -> bool", t.name.as_str()),
+                    ),
+                    crate::checker::types::SerializationVector::Fkeys { sv, foreign_table } => (
+                        &sv.column_name,
+                        format!(
+                            "table_row_pointer_{} -> table_row_pointer_{}",
+                            t.name.as_str(),
+                            foreign_table
+                        ),
+                    ),
+                    crate::checker::types::SerializationVector::FkeysOneToMany {
+                        sv,
+                        foreign_table,
+                    } => (
+                        &sv.column_name,
+                        format!(
+                            "table_row_pointer_{} -> table_row_pointer_{} list",
+                            t.name.as_str(),
+                            foreign_table
+                        ),
+                    ),
                 };
 
                 output += "  c_";
@@ -381,9 +412,8 @@ fn deserialization_function(data: &AllData, vecs: &Vec<SerializationVector>) -> 
     // let mut table_cvars: Vec<(&DataTable, Vec<ColumnVar>)> = Vec::with_capacity(data.tables.len());
     let mut column_vars: Vec<ColumnVar> = Vec::new();
     for sv in vecs {
-
         let cv = match sv {
-            crate::checker::types::SerializationVector::StringsColumn(v) => {
+            crate::checker::types::SerializationVector::Strings(v) => {
                 // let cvar = format!("{}_{}", t.name.as_str(), c.column_name.as_str());
                 ColumnVar {
                     cvar: format!("{}_{}", v.table_name, v.column_name),
@@ -393,38 +423,32 @@ fn deserialization_function(data: &AllData, vecs: &Vec<SerializationVector>) -> 
                     last_for_table: v.last_for_table,
                     table_name: v.table_name,
                 }
+            }
+            crate::checker::types::SerializationVector::Ints(v) => ColumnVar {
+                cvar: format!("{}_{}", v.table_name, v.column_name),
+                row_var: v.column_name.to_string(),
+                raw_column_type: "int array".to_string(),
+                column_fetch_expr: "fetch_i64_vector buffer cursor".to_string(),
+                last_for_table: v.last_for_table,
+                table_name: v.table_name,
             },
-            crate::checker::types::SerializationVector::IntsColumn(v) => {
-                ColumnVar {
-                    cvar: format!("{}_{}", v.table_name, v.column_name),
-                    row_var: v.column_name.to_string(),
-                    raw_column_type: "int array".to_string(),
-                    column_fetch_expr: "fetch_i64_vector buffer cursor".to_string(),
-                    last_for_table: v.last_for_table,
-                    table_name: v.table_name,
-                }
+            crate::checker::types::SerializationVector::Floats(v) => ColumnVar {
+                cvar: format!("{}_{}", v.table_name, v.column_name),
+                row_var: v.column_name.to_string(),
+                raw_column_type: "float array".to_string(),
+                column_fetch_expr: "fetch_f64_vector buffer cursor".to_string(),
+                last_for_table: v.last_for_table,
+                table_name: v.table_name,
             },
-            crate::checker::types::SerializationVector::FloatsColumn(v) => {
-                ColumnVar {
-                    cvar: format!("{}_{}", v.table_name, v.column_name),
-                    row_var: v.column_name.to_string(),
-                    raw_column_type: "float array".to_string(),
-                    column_fetch_expr: "fetch_f64_vector buffer cursor".to_string(),
-                    last_for_table: v.last_for_table,
-                    table_name: v.table_name,
-                }
+            crate::checker::types::SerializationVector::Bools(v) => ColumnVar {
+                cvar: format!("{}_{}", v.table_name, v.column_name),
+                row_var: v.column_name.to_string(),
+                raw_column_type: "bool array".to_string(),
+                column_fetch_expr: "fetch_bool_vector buffer cursor".to_string(),
+                last_for_table: v.last_for_table,
+                table_name: v.table_name,
             },
-            crate::checker::types::SerializationVector::BoolsColumn(v) => {
-                ColumnVar {
-                    cvar: format!("{}_{}", v.table_name, v.column_name),
-                    row_var: v.column_name.to_string(),
-                    raw_column_type: "bool array".to_string(),
-                    column_fetch_expr: "fetch_bool_vector buffer cursor".to_string(),
-                    last_for_table: v.last_for_table,
-                    table_name: v.table_name,
-                }
-            },
-            crate::checker::types::SerializationVector::FkeysColumn { sv, foreign_table } => {
+            crate::checker::types::SerializationVector::Fkeys { sv, foreign_table } => {
                 let cvar = format!("{}_{}", sv.table_name, sv.column_name);
                 let fkey_pascal = foreign_table.to_case(Case::Pascal);
                 ColumnVar {
@@ -435,8 +459,8 @@ fn deserialization_function(data: &AllData, vecs: &Vec<SerializationVector>) -> 
                     last_for_table: sv.last_for_table,
                     table_name: sv.table_name,
                 }
-            },
-            crate::checker::types::SerializationVector::FkeysOneToManyColumn { sv, foreign_table } => {
+            }
+            crate::checker::types::SerializationVector::FkeysOneToMany { sv, foreign_table } => {
                 let cvar = format!("{}_{}", sv.table_name, sv.column_name);
                 let fkey_pascal = foreign_table.to_case(Case::Pascal);
                 ColumnVar {
@@ -447,7 +471,7 @@ fn deserialization_function(data: &AllData, vecs: &Vec<SerializationVector>) -> 
                     last_for_table: sv.last_for_table,
                     table_name: sv.table_name,
                 }
-            },
+            }
         };
 
         output.push_str("  ");
@@ -486,7 +510,10 @@ fn deserialization_function(data: &AllData, vecs: &Vec<SerializationVector>) -> 
         let tname_pascal = t.name.as_str().to_case(Case::Pascal);
         // generate row ids
         let row_ids_vname = format!("row_ids_{}", t.name.as_str());
-        let first_var_name = column_vars.iter().find(|i| i.table_name == t.name.as_str()).unwrap();
+        let first_var_name = column_vars
+            .iter()
+            .find(|i| i.table_name == t.name.as_str())
+            .unwrap();
         output.push_str("  ");
         output.push_str("let ");
         output.push_str(&row_ids_vname);
@@ -497,7 +524,6 @@ fn deserialization_function(data: &AllData, vecs: &Vec<SerializationVector>) -> 
         output.push_str(" idx) ");
         output.push_str(&first_var_name.cvar);
         output.push_str(" in\n");
-
 
         // generate rows
         let rows_vname = format!("rows_{}", t.name.as_str());
@@ -544,7 +570,10 @@ fn deserialization_function(data: &AllData, vecs: &Vec<SerializationVector>) -> 
         output.push_str(");\n");
 
         // get row function
-        output.push_str(&format!("    row = (fun (TableRowPointer{} ptr) -> rows_", tname_pascal));
+        output.push_str(&format!(
+            "    row = (fun (TableRowPointer{} ptr) -> rows_",
+            tname_pascal
+        ));
         output.push_str(t.name.as_str());
         output.push_str(".(ptr));\n");
 
@@ -552,7 +581,10 @@ fn deserialization_function(data: &AllData, vecs: &Vec<SerializationVector>) -> 
             if column.table_name == t.name.as_str() {
                 output.push_str("    c_");
                 output.push_str(&column.row_var);
-                output.push_str(&format!(" = (fun (TableRowPointer{} ptr) -> ", tname_pascal));
+                output.push_str(&format!(
+                    " = (fun (TableRowPointer{} ptr) -> ",
+                    tname_pascal
+                ));
                 output.push_str(&column.cvar);
                 output.push_str(".(ptr));\n");
             }
@@ -567,9 +599,9 @@ fn deserialization_function(data: &AllData, vecs: &Vec<SerializationVector>) -> 
 
     output.push_str("  {\n");
     for t in data.tables_sorted() {
-      output.push_str("    ");
-      output.push_str(t.name.as_str());
-      output.push_str(";\n");
+        output.push_str("    ");
+        output.push_str(t.name.as_str());
+        output.push_str(";\n");
     }
     output.push_str("  }\n");
     output.push('\n');
@@ -583,7 +615,10 @@ fn debug_dump_function(data: &AllData) -> String {
     output.push_str("let dump_to_stdout (db: database) : unit =\n");
     for t in data.tables_sorted() {
         let t = t.name.as_str();
-        output.push_str(&format!("  print_endline \"TABLE: {} <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<\";\n", t));
+        output.push_str(&format!(
+            "  print_endline \"TABLE: {} <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<\";\n",
+            t
+        ));
         output.push_str(&format!("  db.{}.iter (fun i -> db.{}.row i |> table_row_{}_to_yojson |> Yojson.Safe.to_string |> print_endline);\n", t, t, t));
     }
     output.push_str("  ()\n");
@@ -637,7 +672,7 @@ let () =
 fn assert_ocaml_db_compiled_dump_equals(source: &str, output_dump: &str) {
     use std::process::{Command, Stdio};
 
-    use crate::db_parser::{InputSource, self};
+    use crate::db_parser::{self, InputSource};
 
     let tmp_dir = crate::checker::tests::common::random_test_dir();
     let src_dir = init_dune_project(&tmp_dir);
@@ -655,18 +690,16 @@ fn assert_ocaml_db_compiled_dump_equals(source: &str, output_dump: &str) {
     let codegen_outputs = gen.generate(&data);
     codegen_outputs.dump_to_dir(src_dir.to_str().unwrap());
 
-    let output =
-        Command::new("dune")
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .current_dir(&tmp_dir)
-            .arg("exec")
-            .arg("test")
-            .output()
-            .unwrap();
+    let output = Command::new("dune")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .current_dir(&tmp_dir)
+        .arg("exec")
+        .arg("test")
+        .output()
+        .unwrap();
 
     assert!(output.status.success());
-
 
     let out_res = String::from_utf8(output.stdout).unwrap();
     pretty_assertions::assert_eq!(out_res, output_dump);
@@ -717,8 +750,7 @@ DATA EXCLUSIVE some_enum {
   hot;
 }
 "#;
-    let output_dump =
-r#"TABLE: enum_child_a <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+    let output_dump = r#"TABLE: enum_child_a <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 {"inner_name_a":"barely warm","parent":["TableRowPointerSomeEnum",0]}
 {"inner_name_a":"medium warm","parent":["TableRowPointerSomeEnum",0]}
 TABLE: enum_child_b <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<

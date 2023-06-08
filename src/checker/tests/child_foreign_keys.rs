@@ -1,11 +1,11 @@
 #[cfg(test)]
-use serde_json::json;
-#[cfg(test)]
 use super::common::assert_compiles_data;
+#[cfg(test)]
+use super::common::assert_test_validaton_exception;
 #[cfg(test)]
 use crate::checker::errors::DatabaseValidationError;
 #[cfg(test)]
-use super::common::assert_test_validaton_exception;
+use serde_json::json;
 
 #[test]
 fn test_child_foreign_key_refers_to_non_existing_table() {
@@ -19,7 +19,7 @@ fn test_child_foreign_key_refers_to_non_existing_table() {
 TABLE good_ref {
     ref_port_no REF FOREIGN CHILD non_existant,
 }
-        "#
+        "#,
     );
 }
 
@@ -39,10 +39,9 @@ TABLE existant {
 TABLE good_ref {
     ref_key REF FOREIGN CHILD existant,
 }
-        "#
+        "#,
     );
 }
-
 
 #[test]
 fn test_child_foreign_key_refers_equal_ancestry_child() {
@@ -65,7 +64,7 @@ TABLE bad_ref {
     inner_key INT PRIMARY KEY CHILD OF existant_parent,
     ref_key REF FOREIGN CHILD existant_child,
 }
-        "#
+        "#,
     );
 }
 
@@ -94,7 +93,7 @@ TABLE bad_ref {
     inner_key INT PRIMARY KEY CHILD OF child_of_parent,
     ref_key REF FOREIGN CHILD existant_child,
 }
-        "#
+        "#,
     );
 }
 
@@ -122,7 +121,7 @@ TABLE good_ref {
 DATA existant_parent {
     -123
 }
-        "#
+        "#,
     );
 }
 
@@ -152,7 +151,7 @@ DATA existant_parent {
         -7
     }
 }
-        "#
+        "#,
     );
 }
 
@@ -180,7 +179,7 @@ TABLE good_ref {
 DATA existant_parent {
     NonSnakeCase
 }
-        "#
+        "#,
     );
 }
 
@@ -210,7 +209,7 @@ DATA existant_parent {
         NonSnakeCase
     }
 }
-        "#
+        "#,
     );
 }
 
@@ -247,7 +246,7 @@ DATA existant_parent {
 DATA good_ref {
     single_segment
 }
-        "#
+        "#,
     );
 }
 
@@ -282,7 +281,7 @@ DATA existant_parent {
 DATA good_ref {
     "outer_val => inner_val"
 }
-        "#
+        "#,
     );
 }
 
@@ -321,7 +320,7 @@ DATA existant_parent {
 DATA good_ref {
     "no_such=>inner_val"
 }
-        "#
+        "#,
     );
 }
 
@@ -365,10 +364,9 @@ DATA existant_parent {
         7, "outer_val=>more_inner_val"
     }
 }
-        "#
+        "#,
     );
 }
-
 
 #[test]
 fn test_child_inner_foreign_key_all_good() {
@@ -414,7 +412,7 @@ DATA existant_parent {
             "good_ref":[
                 {"some_key":"outer_val", "uniq_key": 7.0, "ref_key": "inner_val=>more_inner_val"},
             ],
-        })
+        }),
     );
 }
 
@@ -463,7 +461,7 @@ DATA good_ref {
             "good_ref":[
                 { "ref_key": "outer_val=>inner_val=>more_inner_val"},
             ],
-        })
+        }),
     );
 }
 
@@ -503,7 +501,7 @@ DATA good_ref {
             "good_ref":[
                 {"ref_key": "outer_val=>inner_val"},
             ],
-        })
+        }),
     );
 }
 
@@ -548,7 +546,7 @@ DATA existant_parent {
         7, "inner_val=>more_inner_val"
     };
 }
-        "#
+        "#,
     );
 }
 
@@ -606,7 +604,7 @@ DATA good_ref_parent_1 {
             "good_ref":[
                 {"p1": "k1", "p2": "k2", "p3": "k3", "ref_key": "outer_val=>inner_val"}
             ],
-        })
+        }),
     );
 }
 
@@ -689,7 +687,7 @@ DATA existant_parent {
             "existant_child":[
                 {"some_key":"outer_val", "some_child_key": "inner_val"},
             ],
-        })
+        }),
     );
 }
 
@@ -730,7 +728,6 @@ DATA existant_parent {
         "#,
     );
 }
-
 
 #[test]
 fn test_child_refer_to_existing_nested_child_no_key_outer() {
@@ -805,6 +802,6 @@ DATA existant_parent {
             "existant_child_2":[
                 {"some_key":"outer_val", "some_child_key": "inner_val", "some_child_key_2": "henlo"},
             ],
-        })
+        }),
     );
 }

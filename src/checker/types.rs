@@ -1,4 +1,6 @@
-use std::{str::FromStr, collections::HashMap};
+#![allow(clippy::needless_range_loop)]
+
+use std::{collections::HashMap, str::FromStr};
 
 use regex::Regex;
 
@@ -21,9 +23,9 @@ pub enum ColumnVector {
 #[derive(PartialEq, Eq, Debug, Clone)]
 pub enum KeyType {
     NotAKey,
-    PrimaryKey,
-    ChildPrimaryKey { parent_table: DBIdentifier },
-    ParentPrimaryKey { parent_table: DBIdentifier },
+    Primary,
+    ChildPrimary { parent_table: DBIdentifier },
+    ParentPrimary { parent_table: DBIdentifier },
 }
 
 #[derive(PartialEq, Eq, Debug)]
@@ -35,10 +37,10 @@ pub struct ForeignKey {
 
 #[derive(PartialEq, Eq, Debug, Clone, Copy)]
 pub enum DBType {
-    DBText,
-    DBInt,
-    DBFloat,
-    DBBool,
+    Text,
+    Int,
+    Float,
+    Bool,
 }
 
 pub struct DataColumn {
@@ -77,7 +79,7 @@ pub enum ConsistentStringDataframeValidationError {
     },
     DuplicateFields {
         field_name: String,
-    }
+    },
 }
 
 // validate column/row count
@@ -115,15 +117,9 @@ impl DBIdentifier {
 }
 
 pub enum NestedInsertionMode {
-    ForeignKeyMode {
-        foreign_key_column: usize,
-    },
-    ChildPrimaryKeyMode {
-        parent_key_columns: Vec<usize>,
-    },
-    AmbigousForeignKeys {
-        column_list: Vec<usize>,
-    },
+    ForeignKeyMode { foreign_key_column: usize },
+    ChildPrimaryKeyMode { parent_key_columns: Vec<usize> },
+    AmbigousForeignKeys { column_list: Vec<usize> },
     TablesUnrelated,
 }
 
@@ -142,15 +138,15 @@ pub struct SerializedVector<'a, T> {
 }
 
 pub enum SerializationVector<'a> {
-    StringsColumn(SerializedVector<'a, String>),
-    IntsColumn(SerializedVector<'a, i64>),
-    FloatsColumn(SerializedVector<'a, f64>),
-    BoolsColumn(SerializedVector<'a, bool>),
-    FkeysColumn {
+    Strings(SerializedVector<'a, String>),
+    Ints(SerializedVector<'a, i64>),
+    Floats(SerializedVector<'a, f64>),
+    Bools(SerializedVector<'a, bool>),
+    Fkeys {
         sv: SerializedVector<'a, usize>,
         foreign_table: String,
     },
-    FkeysOneToManyColumn {
+    FkeysOneToMany {
         sv: SerializedVector<'a, Vec<usize>>,
         foreign_table: String,
     },
@@ -161,16 +157,14 @@ impl DataTable {
         self.columns
             .iter()
             .enumerate()
-            .filter(|i| {
-                i.1.is_required()
-            })
+            .filter(|i| i.1.is_required())
             .collect()
     }
 
     pub fn primary_key_column(&self) -> Option<&DataColumn> {
         for i in &self.columns {
             match i.key_type {
-                KeyType::PrimaryKey | KeyType::ChildPrimaryKey { .. } => return Some(i),
+                KeyType::Primary | KeyType::ChildPrimary { .. } => return Some(i),
                 _ => {}
             }
         }
@@ -178,7 +172,7 @@ impl DataTable {
         None
     }
 
-    pub fn len(&self) -> usize {
+    pub(crate) fn len(&self) -> usize {
         self.columns[0].data.len()
     }
 
@@ -203,7 +197,10 @@ impl DataTable {
         res
     }
 
-    fn prepare_columns_to_insert(&self, target_table_fields: &[&str]) -> Result<Vec<String>, DatabaseValidationError> {
+    fn prepare_columns_to_insert(
+        &self,
+        target_table_fields: &[&str],
+    ) -> Result<Vec<String>, DatabaseValidationError> {
         let mut columns_to_insert = Vec::with_capacity(target_table_fields.len());
         if !target_table_fields.is_empty() {
             for tf in target_table_fields.iter() {
@@ -230,9 +227,11 @@ impl DataTable {
         Ok(columns_to_insert)
     }
 
-    fn create_consistent_df_or_error<'a>(&self, columns_to_insert: &[&'a str], input_data: &Vec<Vec<&'a str>>)
-        -> Result<ConsistentStringDataframe<'a>, DatabaseValidationError>
-    {
+    fn create_consistent_df_or_error<'a>(
+        &self,
+        columns_to_insert: &[&'a str],
+        input_data: &[Vec<&'a str>],
+    ) -> Result<ConsistentStringDataframe<'a>, DatabaseValidationError> {
         match ConsistentStringDataframe::new(columns_to_insert, input_data) {
             Ok(ok) => Ok(ok),
             Err(ConsistentStringDataframeValidationError::TooManyColumns {
@@ -271,7 +270,7 @@ impl DataTable {
     pub fn try_insert_dataframe(
         &mut self,
         target_table_fields: &[&str],
-        input_data: &Vec<Vec<&str>>,
+        input_data: &[Vec<&str>],
     ) -> Result<(), DatabaseValidationError> {
         let columns_to_insert = self.prepare_columns_to_insert(target_table_fields)?;
         let columns_to_insert = columns_to_insert
@@ -279,41 +278,42 @@ impl DataTable {
             .map(|i| i.as_str())
             .collect::<Vec<_>>();
 
-        let consistent_df = self.create_consistent_df_or_error(
-            columns_to_insert.as_slice(), input_data
-        )?;
+        let consistent_df =
+            self.create_consistent_df_or_error(columns_to_insert.as_slice(), input_data)?;
 
         // check if we insert data where we don't provide columns
         // and there is no default value for the column
         for table_column in self.columns.iter_mut() {
             match consistent_df.column_by_name(table_column.column_name.as_str()) {
                 Some((col_idx, df_column)) => {
-
                     if table_column.generate_expression.is_some() {
-                        return Err(DatabaseValidationError::ComputerColumnCannotBeExplicitlySpecified {
-                            table_name: self.name.as_str().to_string(),
-                            column_name: table_column.column_name.as_str().to_string(),
-                            compute_expression: table_column.generate_expression.as_ref().unwrap().clone(),
-                        });
+                        return Err(
+                            DatabaseValidationError::ComputerColumnCannotBeExplicitlySpecified {
+                                table_name: self.name.as_str().to_string(),
+                                column_name: table_column.column_name.as_str().to_string(),
+                                compute_expression: table_column
+                                    .generate_expression
+                                    .as_ref()
+                                    .unwrap()
+                                    .clone(),
+                            },
+                        );
                     }
 
-                    match table_column
+                    if let Err((idx, the_value)) = table_column
                         .data
                         .try_parse_and_append_vector(df_column.column_data.as_slice())
                     {
-                        Err((idx, the_value)) => {
-                            return Err(DatabaseValidationError::DataCannotParseDataColumnValue {
-                                table_name: self.name.as_str().to_string(),
-                                row_index: idx + 1,
-                                column_index: col_idx + 1,
-                                column_name: df_column.column_name.to_string(),
-                                column_value: the_value,
-                                expected_type: table_column.data.column_type(),
-                            });
-                        }
-                        Ok(_) => {}
+                        return Err(DatabaseValidationError::DataCannotParseDataColumnValue {
+                            table_name: self.name.as_str().to_string(),
+                            row_index: idx + 1,
+                            column_index: col_idx + 1,
+                            column_name: df_column.column_name.to_string(),
+                            column_value: the_value,
+                            expected_type: table_column.data.column_type(),
+                        });
                     }
-                },
+                }
                 None => {
                     if !table_column.data.has_default_value() {
                         if table_column.generate_expression.is_some() {
@@ -330,7 +330,7 @@ impl DataTable {
                     } else {
                         table_column.data.push_default_values(consistent_df.len());
                     }
-                },
+                }
             }
         }
 
@@ -338,39 +338,33 @@ impl DataTable {
     }
 
     pub fn implicit_parent_primary_keys(&self) -> Vec<usize> {
-        self
-            .columns
+        self.columns
             .iter()
             .enumerate()
-            .filter_map(|i| {
-                match i.1.key_type {
-                    KeyType::PrimaryKey | KeyType::ChildPrimaryKey { .. } => Some(i.0),
-                    _ => None,
-                }
+            .filter_map(|i| match i.1.key_type {
+                KeyType::Primary | KeyType::ChildPrimary { .. } => Some(i.0),
+                _ => None,
             })
             .collect()
     }
 
     pub fn determine_nested_insertion_mode(&self, child_table: &DataTable) -> NestedInsertionMode {
-        let main_table_parent_key = KeyType::ParentPrimaryKey {
+        let main_table_parent_key = KeyType::ParentPrimary {
             parent_table: self.name.clone(),
         };
 
-        let references: Vec<_> =
-            child_table
-                .columns
-                .iter()
-                .enumerate()
-                .filter_map(|(idx, i)| {
-                    if i.is_fkey_to_table(&self.name)
-                        || i.key_type == main_table_parent_key
-                    {
-                        Some(idx)
-                    } else {
-                        None
-                    }
-                })
-                .collect();
+        let references: Vec<_> = child_table
+            .columns
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, i)| {
+                if i.is_fkey_to_table(&self.name) || i.key_type == main_table_parent_key {
+                    Some(idx)
+                } else {
+                    None
+                }
+            })
+            .collect();
 
         let mut foreign_keys = Vec::new();
         let mut parent_pkey = Vec::new();
@@ -379,9 +373,8 @@ impl DataTable {
                 foreign_keys.push(*i);
             }
 
-            match &child_table.columns[*i].key_type {
-                KeyType::ParentPrimaryKey { .. } => parent_pkey.push(*i),
-                _ => {}
+            if let KeyType::ParentPrimary { .. } = &child_table.columns[*i].key_type {
+                parent_pkey.push(*i);
             }
         }
 
@@ -389,10 +382,15 @@ impl DataTable {
         let is_foreign_key_mode = !is_child_primary_key_mode;
         // parent primary key is always preferred instead of foreign key
         if is_foreign_key_mode {
+            #[allow(clippy::comparison_chain)]
             if foreign_keys.len() > 1 {
-                NestedInsertionMode::AmbigousForeignKeys { column_list: foreign_keys }
+                NestedInsertionMode::AmbigousForeignKeys {
+                    column_list: foreign_keys,
+                }
             } else if foreign_keys.len() == 1 {
-                NestedInsertionMode::ForeignKeyMode { foreign_key_column: foreign_keys[0] }
+                NestedInsertionMode::ForeignKeyMode {
+                    foreign_key_column: foreign_keys[0],
+                }
             } else {
                 NestedInsertionMode::TablesUnrelated
             }
@@ -408,7 +406,9 @@ impl DataTable {
     pub fn row_as_pretty_json(&self, row_idx: usize) -> Option<String> {
         use serde_json::Number;
         use serde_json::Value;
-        if row_idx >= self.len() { return None }
+        if row_idx >= self.len() {
+            return None;
+        }
 
         let mut row_value = serde_json::Map::default();
 
@@ -442,20 +442,19 @@ impl DataTable {
     }
 
     pub fn parent_table(&self) -> Option<DBIdentifier> {
-        self.columns.iter().filter_map(|i| {
-            match &i.key_type {
-                KeyType::ParentPrimaryKey { parent_table } => {
-                    Some(parent_table.clone())
-                },
-                _ => { None },
-            }
-        }).last()
+        self.columns
+            .iter()
+            .filter_map(|i| match &i.key_type {
+                KeyType::ParentPrimary { parent_table } => Some(parent_table.clone()),
+                _ => None,
+            })
+            .last()
     }
 }
 
 impl DataColumn {
     pub fn is_fkey_to_table(&self, dbi: &DBIdentifier) -> bool {
-        for i in &self.maybe_foreign_key {
+        if let Some(i) = &self.maybe_foreign_key {
             return &i.foreign_table == dbi;
         }
 
@@ -464,9 +463,9 @@ impl DataColumn {
 
     pub fn column_priority(&self) -> i32 {
         match &self.key_type {
-            KeyType::PrimaryKey => 1,
-            KeyType::ParentPrimaryKey { .. } => 2,
-            KeyType::ChildPrimaryKey { .. } => 3,
+            KeyType::Primary => 1,
+            KeyType::ParentPrimary { .. } => 2,
+            KeyType::ChildPrimary { .. } => 3,
             KeyType::NotAKey => 10,
         }
     }
@@ -481,12 +480,12 @@ impl DataColumn {
         }
 
         match &self.key_type {
-            KeyType::PrimaryKey => true,
-            KeyType::ParentPrimaryKey { .. } => true,
-            KeyType::ChildPrimaryKey { .. } => true,
+            KeyType::Primary => true,
+            KeyType::ParentPrimary { .. } => true,
+            KeyType::ChildPrimary { .. } => true,
             KeyType::NotAKey => {
                 !self.data.has_default_value() && self.generate_expression.is_none()
-            },
+            }
         }
     }
 
@@ -501,7 +500,7 @@ impl DataColumn {
 }
 
 impl<T: Clone + FromStr> ColumnVectorGeneric<T> {
-    pub fn len(&self) -> usize {
+    pub(crate) fn len(&self) -> usize {
         self.v.len()
     }
 
@@ -577,7 +576,7 @@ impl<T: Clone + FromStr> ColumnVectorGeneric<T> {
 
 // TODO: repetition, not great...
 impl ColumnVector {
-    pub fn len(&self) -> usize {
+    pub(crate) fn len(&self) -> usize {
         match self {
             ColumnVector::Strings(vc) => vc.len(),
             ColumnVector::Ints(vc) => vc.len(),
@@ -642,10 +641,10 @@ impl ColumnVector {
 
     pub fn column_type(&self) -> DBType {
         match self {
-            ColumnVector::Strings(_) => DBType::DBText,
-            ColumnVector::Ints(_) => DBType::DBInt,
-            ColumnVector::Floats(_) => DBType::DBFloat,
-            ColumnVector::Bools(_) => DBType::DBBool,
+            ColumnVector::Strings(_) => DBType::Text,
+            ColumnVector::Ints(_) => DBType::Int,
+            ColumnVector::Floats(_) => DBType::Float,
+            ColumnVector::Bools(_) => DBType::Bool,
         }
     }
 }
@@ -653,7 +652,7 @@ impl ColumnVector {
 impl<'a> ConsistentStringDataframe<'a> {
     pub fn new(
         target_fields: &[&'a str],
-        row_based_data: &Vec<Vec<&'a str>>,
+        row_based_data: &[Vec<&'a str>],
     ) -> Result<ConsistentStringDataframe<'a>, ConsistentStringDataframeValidationError> {
         if row_based_data.is_empty() {
             panic!("Should be caught by the parser");
@@ -666,6 +665,7 @@ impl<'a> ConsistentStringDataframe<'a> {
         }
 
         for (idx, row) in row_based_data.iter().enumerate() {
+            #[allow(clippy::comparison_chain)]
             if row.len() > target_fields.len() {
                 return Err(ConsistentStringDataframeValidationError::TooManyColumns {
                     row_index: idx + 1,
@@ -691,7 +691,10 @@ impl<'a> ConsistentStringDataframe<'a> {
             for row in 0..row_count {
                 col_data.push(row_based_data[row][col]);
             }
-            if index_map.insert(target_fields[col].to_string(), res_vec.len()).is_some() {
+            if index_map
+                .insert(target_fields[col].to_string(), res_vec.len())
+                .is_some()
+            {
                 return Err(ConsistentStringDataframeValidationError::DuplicateFields {
                     field_name: target_fields[col].to_string(),
                 });
@@ -700,7 +703,6 @@ impl<'a> ConsistentStringDataframe<'a> {
                 column_name: target_fields[col],
                 column_data: col_data,
             });
-
         }
 
         Ok(ConsistentStringDataframe {
@@ -709,24 +711,26 @@ impl<'a> ConsistentStringDataframe<'a> {
         })
     }
 
-    pub fn len(&self) -> usize {
+    pub(crate) fn len(&self) -> usize {
         self.column_data[0].column_data.len()
     }
 
     pub fn column_by_name(&self, column_name: &str) -> Option<(usize, &ConsistentDataFrameColumn)> {
-        self.column_index.get(column_name).map(|idx| (*idx, &self.column_data[*idx]))
+        self.column_index
+            .get(column_name)
+            .map(|idx| (*idx, &self.column_data[*idx]))
     }
 }
 
 impl<'a> SerializationVector<'a> {
     pub fn table_name(&self) -> &str {
         match self {
-            SerializationVector::StringsColumn(v) => v.table_name,
-            SerializationVector::IntsColumn(v) => v.table_name,
-            SerializationVector::FloatsColumn(v) => v.table_name,
-            SerializationVector::BoolsColumn(v) => v.table_name,
-            SerializationVector::FkeysColumn { sv, .. } => sv.table_name,
-            SerializationVector::FkeysOneToManyColumn { sv, .. } => sv.table_name,
+            SerializationVector::Strings(v) => v.table_name,
+            SerializationVector::Ints(v) => v.table_name,
+            SerializationVector::Floats(v) => v.table_name,
+            SerializationVector::Bools(v) => v.table_name,
+            SerializationVector::Fkeys { sv, .. } => sv.table_name,
+            SerializationVector::FkeysOneToMany { sv, .. } => sv.table_name,
         }
     }
 }

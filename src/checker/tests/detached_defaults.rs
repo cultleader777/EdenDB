@@ -1,11 +1,11 @@
 #[cfg(test)]
-use serde_json::json;
-#[cfg(test)]
-use crate::checker::errors::DatabaseValidationError;
-#[cfg(test)]
 use super::common::assert_compiles_data;
 #[cfg(test)]
 use super::common::assert_test_validaton_exception;
+#[cfg(test)]
+use crate::checker::errors::DatabaseValidationError;
+#[cfg(test)]
+use serde_json::json;
 
 #[test]
 fn test_detached_default_undefined() {
@@ -93,7 +93,7 @@ fn test_detached_default_bad_value() {
         DatabaseValidationError::DetachedDefaultBadValue {
             table: "kukushkin".to_string(),
             column: "some_column".to_string(),
-            expected_type: crate::checker::types::DBType::DBInt,
+            expected_type: crate::checker::types::DBType::Int,
             value: "hello".to_string(),
             error: "Cannot parse value to expected type for this column".to_string(),
         },
@@ -142,6 +142,6 @@ DATA kukushkin { 1 }
                     "float_col": 7.77,
                 }
             ]
-        })
+        }),
     );
 }

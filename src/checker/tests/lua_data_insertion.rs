@@ -1,18 +1,19 @@
 #[cfg(test)]
-use serde_json::json;
-#[cfg(test)]
-use crate::checker::errors::DatabaseValidationError;
-#[cfg(test)]
 use super::common::assert_compiles_data;
 #[cfg(test)]
 use super::common::assert_test_validaton_exception;
-
+#[cfg(test)]
+use crate::checker::errors::DatabaseValidationError;
+#[cfg(test)]
+use serde_json::json;
 
 #[test]
 fn test_lua_corrupt_global_variable() {
-    assert_test_validaton_exception(DatabaseValidationError::LuaDataTableError {
-        error: "error converting Lua nil to table".to_string()
-    }, r#"
+    assert_test_validaton_exception(
+        DatabaseValidationError::LuaDataTableError {
+            error: "error converting Lua nil to table".to_string(),
+        },
+        r#"
 TABLE stuff {
     id INT
 }
@@ -21,15 +22,17 @@ INCLUDE LUA {
 -- there are all kinds of douchebags in the world
 __do_not_refer_to_this_internal_value_in_your_code_dumbo__ = nil
 }
-"#)
+"#,
+    )
 }
 
 #[test]
 fn test_lua_invalid_key_type() {
     assert_test_validaton_exception(
         DatabaseValidationError::LuaDataTableInvalidKeyTypeIsNotString {
-            found_value: "integer 123".to_string()
-        }, r#"
+            found_value: "integer 123".to_string(),
+        },
+        r#"
 TABLE stuff {
     id INT
 }
@@ -37,7 +40,8 @@ TABLE stuff {
 INCLUDE LUA {
 data(123, {})
 }
-"#)
+"#,
+    )
 }
 
 #[test]
@@ -46,7 +50,8 @@ fn test_lua_invalid_utf8_key() {
         DatabaseValidationError::LuaDataTableInvalidKeyTypeIsNotValidUtf8String {
             lossy_value: "�������".to_string(),
             bytes: vec![0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff],
-        }, r#"
+        },
+        r#"
 TABLE stuff {
     id INT
 }
@@ -65,15 +70,17 @@ end
 data(utf8_from({255,255,255,255,255,255,255}), {})
 
 }
-"#)
+"#,
+    )
 }
 
 #[test]
 fn test_lua_invalid_value_type() {
     assert_test_validaton_exception(
         DatabaseValidationError::LuaDataTableInvalidTableValue {
-            found_value: "string \"sup bois\"".to_string()
-        }, r#"
+            found_value: "string \"sup bois\"".to_string(),
+        },
+        r#"
 TABLE stuff {
     id INT
 }
@@ -82,15 +89,17 @@ INCLUDE LUA {
 -- there are all kinds of douchebags in the world
 __do_not_refer_to_this_internal_value_in_your_code_dumbo__['rekt'] = 'sup bois'
 }
-"#)
+"#,
+    )
 }
 
 #[test]
 fn test_lua_data_no_such_table() {
     assert_test_validaton_exception(
         DatabaseValidationError::LuaDataTableNoSuchTable {
-            expected_insertion_table: "stoof".to_string()
-        }, r#"
+            expected_insertion_table: "stoof".to_string(),
+        },
+        r#"
 TABLE stuff {
     id INT
 }
@@ -98,7 +107,8 @@ TABLE stuff {
 INCLUDE LUA {
     data('stoof', {moo = 1})
 }
-"#)
+"#,
+    )
 }
 
 #[test]
@@ -106,7 +116,8 @@ fn test_lua_data_invalid_record_value() {
     assert_test_validaton_exception(
         DatabaseValidationError::LuaDataTableInvalidRecordValue {
             found_value: "string \"hello bois\"".to_string(),
-        }, r#"
+        },
+        r#"
 TABLE stuff {
     id INT
 }
@@ -114,7 +125,8 @@ TABLE stuff {
 INCLUDE LUA {
     data('stuff', 'hello bois')
 }
-"#)
+"#,
+    )
 }
 
 #[test]
@@ -122,7 +134,8 @@ fn test_lua_data_invalid_record_column_name_value() {
     assert_test_validaton_exception(
         DatabaseValidationError::LuaDataTableInvalidRecordColumnNameValue {
             found_value: "integer 123".to_string(),
-        }, r#"
+        },
+        r#"
 TABLE stuff {
     id INT
 }
@@ -132,9 +145,9 @@ INCLUDE LUA {
     the_table[123] = 'lol'
     data('stuff', the_table)
 }
-"#)
+"#,
+    )
 }
-
 
 #[test]
 fn test_lua_data_invalid_record_column_name_utf8() {
@@ -142,7 +155,8 @@ fn test_lua_data_invalid_record_column_name_utf8() {
         DatabaseValidationError::LuaDataTableRecordInvalidColumnNameUtf8String {
             lossy_value: "�������".to_string(),
             bytes: vec![0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff],
-        }, r#"
+        },
+        r#"
 TABLE stuff {
     id INT
 }
@@ -162,7 +176,8 @@ the_table = {}
 the_table[utf8_from({255,255,255,255,255,255,255})] = 'lol'
 data('stuff', the_table)
 }
-"#)
+"#,
+    )
 }
 
 #[test]
@@ -171,7 +186,8 @@ fn test_lua_data_invalid_record_try_insert_function() {
         DatabaseValidationError::LuaDataTableRecordInvalidColumnValue {
             column_name: "id".to_string(),
             column_value: "*lua function*".to_string(),
-        }, r#"
+        },
+        r#"
 TABLE stuff {
     id INT
 }
@@ -179,7 +195,8 @@ TABLE stuff {
 INCLUDE LUA {
 data('stuff', { id = function() return 1 + 2 end })
 }
-"#)
+"#,
+    )
 }
 
 #[test]
@@ -187,7 +204,8 @@ fn test_lua_data_exclusive_insert() {
     assert_test_validaton_exception(
         DatabaseValidationError::ExclusiveDataDefinedMultipleTimes {
             table_name: "stuff".to_string(),
-        }, r#"
+        },
+        r#"
 TABLE stuff {
     id INT
 }
@@ -199,7 +217,8 @@ DATA EXCLUSIVE stuff {
 INCLUDE LUA {
 data('stuff', { id = 13 })
 }
-"#)
+"#,
+    )
 }
 
 #[test]
@@ -207,7 +226,8 @@ fn test_lua_data_exclusive_insert_struct() {
     assert_test_validaton_exception(
         DatabaseValidationError::ExclusiveDataDefinedMultipleTimes {
             table_name: "stuff".to_string(),
-        }, r#"
+        },
+        r#"
 TABLE stuff {
     id INT
 }
@@ -219,12 +239,14 @@ DATA STRUCT EXCLUSIVE stuff {
 INCLUDE LUA {
 data('stuff', { id = 13 })
 }
-"#)
+"#,
+    )
 }
 
 #[test]
 fn test_lua_data_insertion() {
-    assert_compiles_data(r#"
+    assert_compiles_data(
+        r#"
 TABLE stuff {
     id INT
 }
@@ -233,10 +255,10 @@ INCLUDE LUA {
 data('stuff', { id = 777 })
 }
 "#,
-    json!({
-        "stuff": [
-            {"id": 777.0}
-        ]
-    })
+        json!({
+            "stuff": [
+                {"id": 777.0}
+            ]
+        }),
     )
 }

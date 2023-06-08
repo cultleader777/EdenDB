@@ -6,7 +6,8 @@ use super::common::assert_compiles_data;
 
 #[test]
 fn test_regression_1() {
-    assert_compiles_data(r#"
+    assert_compiles_data(
+        r#"
 TABLE thic_boi {
   id INT,
   name TEXT,
@@ -43,25 +44,27 @@ DATA EXCLUSIVE some_enum {
   };
   hot;
 }
-"#, json!({
-        "thic_boi": [
-            {"id": 1.0, "name": "hey ho", "b": true, "f": 1.23, "fk": "warm"},
-            {"id": 2.0, "name": "here she goes", "b": false, "f": 3.21, "fk": "hot"},
-            {"id": 3.0, "name": "either blah", "b": true, "f": 5.43, "fk": "hot"},
-        ],
-        "some_enum": [
-            {"name": "warm"},
-            {"name": "hot"},
-        ],
-        "enum_child_a": [
-            {"name": "warm", "inner_name_a": "barely warm"},
-            {"name": "warm", "inner_name_a": "medium warm"},
-        ],
-        "enum_child_b": [
-            {"name": "warm", "inner_name_b": "barely degrees"},
-            {"name": "warm", "inner_name_b": "medium degrees"},
-        ],
-    }));
+"#,
+        json!({
+            "thic_boi": [
+                {"id": 1.0, "name": "hey ho", "b": true, "f": 1.23, "fk": "warm"},
+                {"id": 2.0, "name": "here she goes", "b": false, "f": 3.21, "fk": "hot"},
+                {"id": 3.0, "name": "either blah", "b": true, "f": 5.43, "fk": "hot"},
+            ],
+            "some_enum": [
+                {"name": "warm"},
+                {"name": "hot"},
+            ],
+            "enum_child_a": [
+                {"name": "warm", "inner_name_a": "barely warm"},
+                {"name": "warm", "inner_name_a": "medium warm"},
+            ],
+            "enum_child_b": [
+                {"name": "warm", "inner_name_b": "barely degrees"},
+                {"name": "warm", "inner_name_b": "medium degrees"},
+            ],
+        }),
+    );
 }
 
 #[test]
@@ -73,14 +76,19 @@ fn test_regression_2() {
         reserved_port: REF reserved_port,
     }
 "#;
-    let mut inp = [crate::db_parser::InputSource { contents: Some(source.to_string()), path: "test".to_string(), source_dir: None, }];
+    let mut inp = [crate::db_parser::InputSource {
+        contents: Some(source.to_string()),
+        path: "test".to_string(),
+        source_dir: None,
+    }];
     let parsed = crate::db_parser::parse_sources(&mut inp);
     assert!(parsed.is_err());
 }
 
 #[test]
 fn test_regression_sparse_passing_of_child_columns() {
-    assert_compiles_data(r#"
+    assert_compiles_data(
+        r#"
 TABLE server {
     hostname TEXT PRIMARY KEY,
 }
@@ -111,25 +119,28 @@ DATA docker_container {
         somethin, 1234
     }
 }
-"#, json!({
-        "server": [
-            {"hostname": "epyc-1"},
-        ],
-        "reserved_port": [
-            {"port_number": 1234.0},
-        ],
-        "docker_container": [
-            {"hostname": "epyc-1", "container_name": "doofus"},
-        ],
-        "docker_container_port": [
-            {"hostname": "epyc-1", "container_name": "doofus", "reserved_port": 1234.0, "port_name": "somethin"},
-        ],
-    }));
+"#,
+        json!({
+            "server": [
+                {"hostname": "epyc-1"},
+            ],
+            "reserved_port": [
+                {"port_number": 1234.0},
+            ],
+            "docker_container": [
+                {"hostname": "epyc-1", "container_name": "doofus"},
+            ],
+            "docker_container_port": [
+                {"hostname": "epyc-1", "container_name": "doofus", "reserved_port": 1234.0, "port_name": "somethin"},
+            ],
+        }),
+    );
 }
 
 #[test]
 fn test_regression_sparse_passing_of_child_columns_structured() {
-    assert_compiles_data(r#"
+    assert_compiles_data(
+        r#"
 TABLE server {
     hostname TEXT PRIMARY KEY,
 }
@@ -160,25 +171,28 @@ DATA STRUCT docker_container {
         port_name: somethin, reserved_port: 1234
     }
 }
-"#, json!({
-        "server": [
-            {"hostname": "epyc-1"},
-        ],
-        "reserved_port": [
-            {"port_number": 1234.0},
-        ],
-        "docker_container": [
-            {"hostname": "epyc-1", "container_name": "doofus"},
-        ],
-        "docker_container_port": [
-            {"hostname": "epyc-1", "container_name": "doofus", "reserved_port": 1234.0, "port_name": "somethin"},
-        ],
-    }));
+"#,
+        json!({
+            "server": [
+                {"hostname": "epyc-1"},
+            ],
+            "reserved_port": [
+                {"port_number": 1234.0},
+            ],
+            "docker_container": [
+                {"hostname": "epyc-1", "container_name": "doofus"},
+            ],
+            "docker_container_port": [
+                {"hostname": "epyc-1", "container_name": "doofus", "reserved_port": 1234.0, "port_name": "somethin"},
+            ],
+        }),
+    );
 }
 
 #[test]
 fn test_regression_uniq_constraints_involve_parent_keys() {
-    assert_compiles_data(r#"
+    assert_compiles_data(
+        r#"
 TABLE server {
     hostname TEXT PRIMARY KEY,
 }
@@ -188,15 +202,18 @@ TABLE server_volume {
   directory_path TEXT,
   UNIQUE(hostname, directory_path)
 }
-"#, json!({
-        "server": [],
-        "server_volume": [],
-    }));
+"#,
+        json!({
+            "server": [],
+            "server_volume": [],
+        }),
+    );
 }
 
 #[test]
 fn test_regression_multiple_ancestors_reference() {
-    assert_compiles_data(r#"
+    assert_compiles_data(
+        r#"
 TABLE server {
   hostname TEXT PRIMARY KEY,
 }
@@ -268,41 +285,43 @@ DATA server {
       };
 }
 
-"#, json!({
-        "server": [
-            {"hostname": "host-a"},
-        ],
-        "server_volume": [
-            {"hostname": "host-a", "volume_name": "vol-a", "directory_path": "/volumes/vol-a"},
-        ],
-        "server_volume_use": [
-            {"hostname": "host-a", "volume_name": "vol-a", "volume_user": "postgres_instance", "usage_kind": "write", "usage_contract": "exclusive"},
-        ],
-        "docker_image": [
-            {"reference": "postgres", "tag": "postgres-tag", "version": "12.12"},
-        ],
-        "docker_container": [
-            {"hostname": "host-a", "name": "pg-instance", "image": "postgres"},
-        ],
-        "docker_container_mount": [
-            {"hostname": "host-a", "name": "pg-instance", "path_in_container": "/var/lib/postgresql", "volume_use": "postgres_instance"},
-        ],
-        "server_volume_usage_type": [
-            {"usage_type": "read"},
-            {"usage_type": "write"},
-        ],
-        "server_volume_usage_contract": [
-            {"usage_contract": "read_only"},
-            {"usage_contract": "one_writer_many_readers"},
-            {"usage_contract": "exclusive"},
-        ],
-    }));
+"#,
+        json!({
+            "server": [
+                {"hostname": "host-a"},
+            ],
+            "server_volume": [
+                {"hostname": "host-a", "volume_name": "vol-a", "directory_path": "/volumes/vol-a"},
+            ],
+            "server_volume_use": [
+                {"hostname": "host-a", "volume_name": "vol-a", "volume_user": "postgres_instance", "usage_kind": "write", "usage_contract": "exclusive"},
+            ],
+            "docker_image": [
+                {"reference": "postgres", "tag": "postgres-tag", "version": "12.12"},
+            ],
+            "docker_container": [
+                {"hostname": "host-a", "name": "pg-instance", "image": "postgres"},
+            ],
+            "docker_container_mount": [
+                {"hostname": "host-a", "name": "pg-instance", "path_in_container": "/var/lib/postgresql", "volume_use": "postgres_instance"},
+            ],
+            "server_volume_usage_type": [
+                {"usage_type": "read"},
+                {"usage_type": "write"},
+            ],
+            "server_volume_usage_contract": [
+                {"usage_contract": "read_only"},
+                {"usage_contract": "one_writer_many_readers"},
+                {"usage_contract": "exclusive"},
+            ],
+        }),
+    );
 }
-
 
 #[test]
 fn test_regression_3() {
-    assert_compiles_data(r#"
+    assert_compiles_data(
+        r#"
 TABLE application_language {
     name TEXT PRIMARY KEY,
 }
@@ -361,25 +380,27 @@ DATA STRUCT application [
     ]
   }
 ]
-"#, json!({
-        "application": [
-            {"application_name": "hello_world", "language": "rust"},
-        ],
-        "application_language": [
-            {"name": "rust"},
-            {"name": "ocaml"},
-        ],
-        "http_endpoint": [
-            {"application_name": "hello_world", "http_endpoint_name": "primary", "data_type": "json", "path": "/henlo/boi?hey?yo", "method": "GET", "input_body_type": "", "output_body_type": ""}
-        ],
-        "http_endpoint_data_type": [
-            {"http_endpoint_data_type": "json"},
-            {"http_endpoint_data_type": "html"},
-        ],
-        "http_methods": [
-            {"http_method_name": "GET"},
-            {"http_method_name": "POST"},
-            {"http_method_name": "PUT"},
-        ],
-    }));
+"#,
+        json!({
+            "application": [
+                {"application_name": "hello_world", "language": "rust"},
+            ],
+            "application_language": [
+                {"name": "rust"},
+                {"name": "ocaml"},
+            ],
+            "http_endpoint": [
+                {"application_name": "hello_world", "http_endpoint_name": "primary", "data_type": "json", "path": "/henlo/boi?hey?yo", "method": "GET", "input_body_type": "", "output_body_type": ""}
+            ],
+            "http_endpoint_data_type": [
+                {"http_endpoint_data_type": "json"},
+                {"http_endpoint_data_type": "html"},
+            ],
+            "http_methods": [
+                {"http_method_name": "GET"},
+                {"http_method_name": "POST"},
+                {"http_method_name": "PUT"},
+            ],
+        }),
+    );
 }

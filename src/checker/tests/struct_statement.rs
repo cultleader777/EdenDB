@@ -1,13 +1,13 @@
 #[cfg(test)]
-use serde_json::json;
+use super::common::assert_compiles_data;
+#[cfg(test)]
+use super::common::assert_test_validaton_exception;
 #[cfg(test)]
 use crate::checker::errors::DatabaseValidationError;
 #[cfg(test)]
 use crate::checker::types::DBType;
 #[cfg(test)]
-use super::common::assert_compiles_data;
-#[cfg(test)]
-use super::common::assert_test_validaton_exception;
+use serde_json::json;
 
 #[test]
 fn test_child_primary_keys_with_nested_syntax() {
@@ -45,7 +45,7 @@ DATA STRUCT server [
                 {"hostname": "mclassen", "dev_slot": "/dev/sda"},
                 {"hostname": "doofus", "dev_slot": "/dev/sda"},
             ],
-        })
+        }),
     );
 }
 
@@ -95,7 +95,7 @@ DATA STRUCT server [
             "sector": [
                 {"hostname": "mclassen", "dev_slot": "/dev/sda", "part_no": 7.0, "sect_no": 77.0},
             ],
-        })
+        }),
     );
 }
 
@@ -137,7 +137,7 @@ DATA STRUCT server [
             "cpu": [
                 {"hostname": "mclassen", "cpu_slot": 0.0},
             ],
-        })
+        }),
     );
 }
 
@@ -177,7 +177,6 @@ DATA STRUCT server [
         "#,
     );
 }
-
 
 #[test]
 fn test_structured_data_errors_duplicate_columns() {
@@ -230,7 +229,7 @@ fn test_structured_data_cant_parse_int() {
             table_name: "stoof".to_string(),
             column_name: "some_int".to_string(),
             column_value: "thicc".to_string(),
-            expected_type: DBType::DBInt,
+            expected_type: DBType::Int,
         },
         r#"
 TABLE stoof {
@@ -268,7 +267,7 @@ DATA STRUCT stoof [
             "stoof": [
                 {"some_int": 1.0, "def_str": "d1", "def_int": 7.0, "def_float": 7.77, "def_bool": true}
             ]
-        })
+        }),
     );
 }
 
@@ -289,7 +288,7 @@ TABLE stoof {
             "stoof": [
                 {"f_str": "some text", "f_int": 7.0, "f_float": 7.77, "f_bool": false}
             ]
-        })
+        }),
     );
 }
 
@@ -320,7 +319,7 @@ DATA STRUCT simple_table {
             "other_table": [
                 {"other_field": 1.0, "st": "abc"},
             ]
-        })
+        }),
     );
 }
 
@@ -331,7 +330,7 @@ fn test_structured_data_cant_parse_float() {
             table_name: "stoof".to_string(),
             column_name: "some_int".to_string(),
             column_value: "thicc".to_string(),
-            expected_type: DBType::DBFloat,
+            expected_type: DBType::Float,
         },
         r#"
 TABLE stoof {
@@ -364,7 +363,7 @@ DATA STRUCT simple_table {
         some_field: "bca"
     }
 }
-        "#
+        "#,
     );
 }
 
@@ -385,7 +384,7 @@ DATA STRUCT simple_table {
         some_field: "bca"
     }
 }
-        "#
+        "#,
     );
 }
 
@@ -410,7 +409,7 @@ DATA STRUCT simple_table {
         other_field: bca
     }
 }
-        "#
+        "#,
     );
 }
 
@@ -438,7 +437,7 @@ DATA STRUCT simple_table {
         other_field: bca
     }
 }
-        "#
+        "#,
     );
 }
 
@@ -465,7 +464,7 @@ DATA STRUCT simple_table {
         other_field: bca, st_1: boi
     }
 }
-        "#
+        "#,
     );
 }
 
@@ -491,7 +490,7 @@ DATA STRUCT simple_table {
         other_field: bca, some_field: boi
     }
 }
-        "#
+        "#,
     );
 }
 
@@ -523,7 +522,7 @@ DATA STRUCT simple_table {
         }
     }
 }
-        "#
+        "#,
     );
 }
 
@@ -543,6 +542,6 @@ DATA STRUCT simple_table {
         other_field: 1
     }
 }
-        "#
+        "#,
     );
 }

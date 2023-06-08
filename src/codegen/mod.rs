@@ -2,10 +2,8 @@ use std::path::PathBuf;
 
 use crate::checker::{logic::AllData, types::SerializationVector};
 
-pub mod rust;
 pub mod ocaml;
-#[allow(dead_code)]
-mod rust_sketch_db;
+pub mod rust;
 
 pub struct CodegenOutputFile {
     filename: String,
@@ -32,14 +30,14 @@ impl CodegenOutputs {
                     if current != to_write {
                         std::fs::write(&fpath, i.content.as_slice()).unwrap();
                     }
-                },
+                }
                 Err(e) => {
                     if e.kind() == std::io::ErrorKind::NotFound {
                         std::fs::write(&fpath, i.content.as_slice()).unwrap();
                     } else {
                         panic!("{:?}", e)
                     }
-                },
+                }
             }
         }
     }
@@ -55,24 +53,24 @@ pub fn dump_as_bytes(vecs: &Vec<SerializationVector>) -> Vec<u8> {
 
     for sv in vecs {
         match sv {
-            crate::checker::types::SerializationVector::StringsColumn(v) => {
+            crate::checker::types::SerializationVector::Strings(v) => {
                 bincode::serialize_into(&mut output, v.v.as_slice()).unwrap();
-            },
-            crate::checker::types::SerializationVector::IntsColumn(v) => {
+            }
+            crate::checker::types::SerializationVector::Ints(v) => {
                 bincode::serialize_into(&mut output, v.v.as_slice()).unwrap();
-            },
-            crate::checker::types::SerializationVector::FloatsColumn(v) => {
+            }
+            crate::checker::types::SerializationVector::Floats(v) => {
                 bincode::serialize_into(&mut output, v.v.as_slice()).unwrap();
-            },
-            crate::checker::types::SerializationVector::BoolsColumn(v) => {
+            }
+            crate::checker::types::SerializationVector::Bools(v) => {
                 bincode::serialize_into(&mut output, v.v.as_slice()).unwrap();
-            },
-            crate::checker::types::SerializationVector::FkeysColumn { sv, .. } => {
+            }
+            crate::checker::types::SerializationVector::Fkeys { sv, .. } => {
                 bincode::serialize_into(&mut output, sv.v.as_slice()).unwrap();
-            },
-            crate::checker::types::SerializationVector::FkeysOneToManyColumn { sv, .. } => {
+            }
+            crate::checker::types::SerializationVector::FkeysOneToMany { sv, .. } => {
                 bincode::serialize_into(&mut output, sv.v.as_slice()).unwrap();
-            },
+            }
         }
     }
 
@@ -93,7 +91,7 @@ fn dump_as_bytes_lz4_checksum_xxh(vecs: &Vec<SerializationVector>) -> (Vec<u8>, 
 
 #[cfg(test)]
 fn assert_eden_db_binary_dump_equals(source: &str, expected_dump: &[u8]) {
-    use crate::db_parser::{InputSource, self};
+    use crate::db_parser::{self, InputSource};
 
     let inputs = &mut [InputSource {
         path: "test".to_string(),
@@ -160,115 +158,71 @@ DATA EXCLUSIVE some_enum {
     let expected_dump: &[u8] = &[
         // enum_child_a table
         //  inner_name_a column size
-        2, 0, 0, 0, 0, 0, 0, 0,
-        //  inner_name_a column elements
+        2, 0, 0, 0, 0, 0, 0, 0, //  inner_name_a column elements
         //   barely warm
-        11, 0, 0, 0, 0, 0, 0, 0,
-        b'b', b'a', b'r', b'e', b'l', b'y', b' ', b'w', b'a', b'r', b'm',
+        11, 0, 0, 0, 0, 0, 0, 0, b'b', b'a', b'r', b'e', b'l', b'y', b' ', b'w', b'a', b'r', b'm',
         //   medium warm
-        11, 0, 0, 0, 0, 0, 0, 0,
-        b'm', b'e', b'd', b'i', b'u', b'm', b' ', b'w', b'a', b'r', b'm',
+        11, 0, 0, 0, 0, 0, 0, 0, b'm', b'e', b'd', b'i', b'u', b'm', b' ', b'w', b'a', b'r', b'm',
         //  parent column size
-        2, 0, 0, 0, 0, 0, 0, 0,
-        //  parent column elements
-        1, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0,
-
+        2, 0, 0, 0, 0, 0, 0, 0, //  parent column elements
+        1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         // enum_child_b table
         //  inner_name_b column size
-        2, 0, 0, 0, 0, 0, 0, 0,
-        //   barely degrees
-        14, 0, 0, 0, 0, 0, 0, 0,
-        b'b', b'a', b'r', b'e', b'l', b'y', b' ', b'd', b'e', b'g', b'r', b'e', b'e', b's',
-        //   medium degrees
-        14, 0, 0, 0, 0, 0, 0, 0,
-        b'm', b'e', b'd', b'i', b'u', b'm', b' ', b'd', b'e', b'g', b'r', b'e', b'e', b's',
-        // parent column size
-        2, 0, 0, 0, 0, 0, 0, 0,
-        // parent column elements
-        0, 0, 0, 0, 0, 0, 0, 0,
-        1, 0, 0, 0, 0, 0, 0, 0,
-
+        2, 0, 0, 0, 0, 0, 0, 0, //   barely degrees
+        14, 0, 0, 0, 0, 0, 0, 0, b'b', b'a', b'r', b'e', b'l', b'y', b' ', b'd', b'e', b'g', b'r',
+        b'e', b'e', b's', //   medium degrees
+        14, 0, 0, 0, 0, 0, 0, 0, b'm', b'e', b'd', b'i', b'u', b'm', b' ', b'd', b'e', b'g', b'r',
+        b'e', b'e', b's', // parent column size
+        2, 0, 0, 0, 0, 0, 0, 0, // parent column elements
+        0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0,
         // some_enum table
         //  name column size
-        2, 0, 0, 0, 0, 0, 0, 0,
-        //  name column elements
+        2, 0, 0, 0, 0, 0, 0, 0, //  name column elements
         //   warm
-        4, 0, 0, 0, 0, 0, 0, 0,
-        b'w', b'a', b'r', b'm',
-        //   hot
-        3, 0, 0, 0, 0, 0, 0, 0,
-        b'h', b'o', b't',
+        4, 0, 0, 0, 0, 0, 0, 0, b'w', b'a', b'r', b'm', //   hot
+        3, 0, 0, 0, 0, 0, 0, 0, b'h', b'o', b't',
         //  children_enum_child_a elements
         //   children vector count, same as table row count
-        2, 0, 0, 0, 0, 0, 0, 0,
-        //   first vector children count
-        1, 0, 0, 0, 0, 0, 0, 0,
-        //   children values
-        1, 0, 0, 0, 0, 0, 0, 0,
-        //   second vector children count
-        1, 0, 0, 0, 0, 0, 0, 0,
-        //   children values
+        2, 0, 0, 0, 0, 0, 0, 0, //   first vector children count
+        1, 0, 0, 0, 0, 0, 0, 0, //   children values
+        1, 0, 0, 0, 0, 0, 0, 0, //   second vector children count
+        1, 0, 0, 0, 0, 0, 0, 0, //   children values
         0, 0, 0, 0, 0, 0, 0, 0,
         //  children_enum_child_b elements
         //   children vector count, same as table row count
-        2, 0, 0, 0, 0, 0, 0, 0,
-        //   first vector children count
-        1, 0, 0, 0, 0, 0, 0, 0,
-        //   children values
-        0, 0, 0, 0, 0, 0, 0, 0,
-        //   second vector children count
-        1, 0, 0, 0, 0, 0, 0, 0,
-        //   children values
-        1, 0, 0, 0, 0, 0, 0, 0,
-        //  referrer_thic_boi__fk column size
-        2, 0, 0, 0, 0, 0, 0, 0,
-        //  referrer_thic_boi__fk column first row element count
-        1, 0, 0, 0, 0, 0, 0, 0,
-        //  referrer_thic_boi__fk column first row elements
-        0, 0, 0, 0, 0, 0, 0, 0,
-        //  referrer_thic_boi__fk column second row element count
-        2, 0, 0, 0, 0, 0, 0, 0,
-        //  referrer_thic_boi__fk column second row elements
-        1, 0, 0, 0, 0, 0, 0, 0,
-        2, 0, 0, 0, 0, 0, 0, 0,
-
+        2, 0, 0, 0, 0, 0, 0, 0, //   first vector children count
+        1, 0, 0, 0, 0, 0, 0, 0, //   children values
+        0, 0, 0, 0, 0, 0, 0, 0, //   second vector children count
+        1, 0, 0, 0, 0, 0, 0, 0, //   children values
+        1, 0, 0, 0, 0, 0, 0, 0, //  referrer_thic_boi__fk column size
+        2, 0, 0, 0, 0, 0, 0, 0, //  referrer_thic_boi__fk column first row element count
+        1, 0, 0, 0, 0, 0, 0, 0, //  referrer_thic_boi__fk column first row elements
+        0, 0, 0, 0, 0, 0, 0, 0, //  referrer_thic_boi__fk column second row element count
+        2, 0, 0, 0, 0, 0, 0, 0, //  referrer_thic_boi__fk column second row elements
+        1, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0,
         // thic_boi table
         //  size, 8 bytes, little endian
         //  id column size
-        3, 0, 0, 0, 0, 0, 0, 0,
-        //  id column elements
-        1, 0, 0, 0, 0, 0, 0, 0,
-        2, 0, 0, 0, 0, 0, 0, 0,
-        3, 0, 0, 0, 0, 0, 0, 0,
+        3, 0, 0, 0, 0, 0, 0, 0, //  id column elements
+        1, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0,
         //  name column size
-        3, 0, 0, 0, 0, 0, 0, 0,
-        //  name column elements
+        3, 0, 0, 0, 0, 0, 0, 0, //  name column elements
         //   hey ho, size + bytes
-        6, 0, 0, 0, 0, 0, 0, 0,
-        b'h', b'e', b'y', b' ', b'h', b'o',
+        6, 0, 0, 0, 0, 0, 0, 0, b'h', b'e', b'y', b' ', b'h', b'o',
         //   here she goes, size + bytes
-        13, 0, 0, 0, 0, 0, 0, 0,
-        b'h', b'e', b'r', b'e', b' ', b's', b'h', b'e', b' ', b'g', b'o', b'e', b's',
-        //   either blah, size + bytes
-        11, 0, 0, 0, 0, 0, 0, 0,
-        b'e', b'i', b't', b'h', b'e', b'r', b' ', b'b', b'l', b'a', b'h',
+        13, 0, 0, 0, 0, 0, 0, 0, b'h', b'e', b'r', b'e', b' ', b's', b'h', b'e', b' ', b'g', b'o',
+        b'e', b's', //   either blah, size + bytes
+        11, 0, 0, 0, 0, 0, 0, 0, b'e', b'i', b't', b'h', b'e', b'r', b' ', b'b', b'l', b'a', b'h',
         //  b column size
-        3, 0, 0, 0, 0, 0, 0, 0,
-        //  b elements
-        1, 0, 1,
-        //  f column size
-        3, 0, 0, 0, 0, 0, 0, 0,
-        //  f elements
+        3, 0, 0, 0, 0, 0, 0, 0, //  b elements
+        1, 0, 1, //  f column size
+        3, 0, 0, 0, 0, 0, 0, 0, //  f elements
         fb_123[0], fb_123[1], fb_123[2], fb_123[3], fb_123[4], fb_123[5], fb_123[6], fb_123[7],
         fb_321[0], fb_321[1], fb_321[2], fb_321[3], fb_321[4], fb_321[5], fb_321[6], fb_321[7],
         fb_543[0], fb_543[1], fb_543[2], fb_543[3], fb_543[4], fb_543[5], fb_543[6], fb_543[7],
         //  fk column size
-        3, 0, 0, 0, 0, 0, 0, 0,
-        //  fk column elements
-        0, 0, 0, 0, 0, 0, 0, 0,
-        1, 0, 0, 0, 0, 0, 0, 0,
-        1, 0, 0, 0, 0, 0, 0, 0,
+        3, 0, 0, 0, 0, 0, 0, 0, //  fk column elements
+        0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0,
     ];
 
     assert_eden_db_binary_dump_equals(source, expected_dump);

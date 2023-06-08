@@ -1,9 +1,8 @@
 #[cfg(test)]
-use crate::checker::errors::DatabaseValidationError;
-#[cfg(test)]
 use super::common::assert_test_validaton_exception;
 #[cfg(test)]
-
+use crate::checker::errors::DatabaseValidationError;
+#[cfg(test)]
 #[test]
 fn test_sql_proof_table_not_found() {
     assert_test_validaton_exception(
@@ -179,12 +178,14 @@ fn test_sql_proof_offenders_found() {
             proof_expression: " SELECT rowid FROM cholo WHERE id > 1 ".to_string(),
             comment: "no id is more than 1".to_string(),
             offending_columns: vec![
-"{
+                "{
   \"id\": 2.0
-}".to_string(),
-"{
+}"
+                .to_string(),
+                "{
   \"id\": 3.0
-}".to_string(),
+}"
+                .to_string(),
             ],
         },
         r#"
@@ -203,7 +204,6 @@ PROOF "no id is more than 1" NONE EXIST OF cholo { SELECT rowid FROM cholo WHERE
     );
 }
 
-
 #[test]
 fn test_sql_proof_boolean_offenders_found() {
     // we convert boolean to 1 or 0 integers in sqlite
@@ -212,12 +212,11 @@ fn test_sql_proof_boolean_offenders_found() {
             table_name: "cholo".to_string(),
             proof_expression: " SELECT rowid FROM cholo WHERE offends ".to_string(),
             comment: "offends column".to_string(),
-            offending_columns: vec![
-"{
+            offending_columns: vec!["{
   \"id\": 2.0,
   \"offends\": true
-}".to_string(),
-            ],
+}"
+            .to_string()],
         },
         r#"
 TABLE cholo {

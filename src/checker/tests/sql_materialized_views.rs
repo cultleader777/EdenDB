@@ -1,13 +1,13 @@
 #[cfg(test)]
-use serde_json::json;
+use super::common::assert_compiles_data;
+#[cfg(test)]
+use super::common::assert_test_validaton_exception;
 #[cfg(test)]
 use crate::checker::errors::DatabaseValidationError;
 #[cfg(test)]
 use crate::checker::types::DBType;
 #[cfg(test)]
-use super::common::assert_compiles_data;
-#[cfg(test)]
-use super::common::assert_test_validaton_exception;
+use serde_json::json;
 
 #[test]
 fn test_mat_views_no_default_expr() {
@@ -69,7 +69,8 @@ fn test_mat_views_invalid_syntax() {
         DatabaseValidationError::SqlMatViewStatementPrepareException {
             table_name: "cholo".to_string(),
             sql_expression: "\n    invalid sql syntax\n".to_string(),
-            error: "near \"invalid\": syntax error in \n    invalid sql syntax\n at offset 5".to_string(),
+            error: "near \"invalid\": syntax error in \n    invalid sql syntax\n at offset 5"
+                .to_string(),
         },
         r#"
 MATERIALIZED VIEW cholo {
@@ -165,7 +166,7 @@ fn test_mat_views_wrong_type_text_to_int() {
             column_name: "id".to_string(),
             return_row_index: 1,
             actual_column_type: "TEXT".to_string(),
-            expected_column_type: DBType::DBInt,
+            expected_column_type: DBType::Int,
         },
         r#"
 MATERIALIZED VIEW cholo {
@@ -194,7 +195,7 @@ MATERIALIZED VIEW cholo {
             "cholo": [
                 {"f1": 7.0, "f2": false, "f3": "1", "f4": "7.7"}
             ]
-        })
+        }),
     );
 }
 
@@ -235,7 +236,7 @@ MATERIALIZED VIEW cholo {
                 {"other_i": 2.0, "other_b": false, "other_f": 2.23, "other_t": "milky"},
                 {"other_i": 3.0, "other_b": true, "other_f": 3.23, "other_t": "boi"},
             ],
-        })
+        }),
     );
 }
 
@@ -290,7 +291,7 @@ MATERIALIZED VIEW bolo {
                 {"other_i": 2.0, "other_b": false, "other_f": 2.23, "other_t": "milky"},
                 {"other_i": 3.0, "other_b": true, "other_f": 3.23, "other_t": "boi"},
             ],
-        })
+        }),
     );
 }
 
@@ -340,7 +341,7 @@ MATERIALIZED VIEW cholo {
                 {"pkey": 10.0},
                 {"pkey": 11.0},
             ],
-        })
+        }),
     );
 }
 
@@ -475,7 +476,7 @@ MATERIALIZED VIEW cholo {
                 {"other_i": 2.0},
                 {"other_i": 3.0},
             ],
-        })
+        }),
     );
 }
 
@@ -510,7 +511,7 @@ MATERIALIZED VIEW cholo {
                 {"i": 2.0, "child_key": 7.0},
                 {"i": 3.0, "child_key": 7.0},
             ],
-        })
+        }),
     );
 }
 
@@ -545,7 +546,7 @@ MATERIALIZED VIEW cholo {
                 {"foreign_key": 2.0},
                 {"foreign_key": 3.0},
             ],
-        })
+        }),
     );
 }
 
@@ -602,6 +603,6 @@ MATERIALIZED VIEW cholo {
                 {"foreign_key": "1=>10"},
                 {"foreign_key": "2=>20"},
             ],
-        })
+        }),
     );
 }

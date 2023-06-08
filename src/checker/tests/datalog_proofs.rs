@@ -1,20 +1,21 @@
 #[cfg(test)]
-use serde_json::json;
-#[cfg(test)]
-use crate::checker::errors::DatabaseValidationError;
-#[cfg(test)]
 use super::common::assert_compiles_data;
 #[cfg(test)]
 use super::common::assert_test_validaton_exception;
 #[cfg(test)]
 use super::common::assert_test_validaton_exception_return_error;
+#[cfg(test)]
+use crate::checker::errors::DatabaseValidationError;
+#[cfg(test)]
+use serde_json::json;
 
 #[test]
 fn test_datalog_proof_table_not_found() {
     assert_test_validaton_exception(
         DatabaseValidationError::DatalogProofTableNotFound {
             table_name: "non_existing_table".to_string(),
-            proof_expression: "\n  some_output(Offender) :- t_cholo__id(Val, Offender), Val > 1.\n".to_string(),
+            proof_expression: "\n  some_output(Offender) :- t_cholo__id(Val, Offender), Val > 1.\n"
+                .to_string(),
             comment: "no id is more than 1".to_string(),
         },
         r#"
@@ -110,12 +111,23 @@ PROOF "no id is more than 1" NONE EXIST OF cholo DATALOG {
         "#,
     );
 
-    if let DatabaseValidationError::DatalogProofQueryParseError { error, table_name, comment, proof_expression } = err {
+    if let DatabaseValidationError::DatalogProofQueryParseError {
+        error,
+        table_name,
+        comment,
+        proof_expression,
+    } = err
+    {
         assert_eq!(table_name, "cholo");
         assert_eq!(comment, "no id is more than 1");
-        assert_eq!(proof_expression, "\n  OUTPUT(Offender) :- this aint a thing boi.\n");
+        assert_eq!(
+            proof_expression,
+            "\n  OUTPUT(Offender) :- this aint a thing boi.\n"
+        );
         assert!(error.contains("expected comparison_operator"));
-    } else { panic!() }
+    } else {
+        panic!()
+    }
 }
 
 #[test]
@@ -138,14 +150,21 @@ PROOF "no id is more than 1" NONE EXIST OF cholo DATALOG {
         "#,
     );
 
-    if let DatabaseValidationError::DatalogProofNoRulesFound { error, table_name, comment, proof_expression } = err {
+    if let DatabaseValidationError::DatalogProofNoRulesFound {
+        error,
+        table_name,
+        comment,
+        proof_expression,
+    } = err
+    {
         assert_eq!(table_name, "cholo");
         assert_eq!(comment, "no id is more than 1");
         assert_eq!(proof_expression, "\n  % OUTPUT(Offender)\n");
         assert_eq!(error, "No datalog queries found in proof. There must exist one OUTPUT(Offender) rule in a proof.");
-    } else { panic!() }
+    } else {
+        panic!()
+    }
 }
-
 
 #[test]
 fn test_datalog_proof_incorrect_variable_order() {
@@ -182,15 +201,18 @@ fn test_datalog_proof_offenders_found() {
             proof_expression: "\n    OUTPUT(Offender) :- t_cholo__id(Val, Offender).\n".to_string(),
             comment: "fail all".to_string(),
             offending_columns: vec![
-"{
+                "{
   \"id\": 1.0
-}".to_string(),
-"{
+}"
+                .to_string(),
+                "{
   \"id\": 2.0
-}".to_string(),
-"{
+}"
+                .to_string(),
+                "{
   \"id\": 3.0
-}".to_string(),
+}"
+                .to_string(),
             ],
         },
         r#"
@@ -218,11 +240,10 @@ fn test_datalog_proof_offenders_found_exact() {
             table_name: "cholo".to_string(),
             proof_expression: "\n    OUTPUT(Offender) :- t_cholo__id(1, Offender).\n".to_string(),
             comment: "fail exact".to_string(),
-            offending_columns: vec![
-"{
+            offending_columns: vec!["{
   \"id\": 1.0
-}".to_string(),
-            ],
+}"
+            .to_string()],
         },
         r#"
 TABLE cholo {
@@ -275,15 +296,18 @@ fn test_datalog_proof_offenders_found_comparison() {
     assert_test_validaton_exception(
         DatabaseValidationError::DatalogProofOffendersFound {
             table_name: "cholo".to_string(),
-            proof_expression: "\n    OUTPUT(Offender) :- t_cholo__id(Val, Offender), Val > 1.\n".to_string(),
+            proof_expression: "\n    OUTPUT(Offender) :- t_cholo__id(Val, Offender), Val > 1.\n"
+                .to_string(),
             comment: "fail more than 1".to_string(),
             offending_columns: vec![
-"{
+                "{
   \"id\": 2.0
-}".to_string(),
-"{
+}"
+                .to_string(),
+                "{
   \"id\": 3.0
-}".to_string(),
+}"
+                .to_string(),
             ],
         },
         r#"
@@ -328,6 +352,6 @@ PROOF "fail all" NONE EXIST OF cholo DATALOG {
                 {"id": 2.0},
                 {"id": 3.0},
             ]
-        })
+        }),
     );
 }

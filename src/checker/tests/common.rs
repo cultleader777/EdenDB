@@ -1,17 +1,18 @@
 #[cfg(test)]
-use crate::checker::{logic::AllData};
-#[cfg(test)]
 use crate::checker::errors::DatabaseValidationError;
+#[cfg(test)]
+use crate::checker::logic::AllData;
 #[cfg(test)]
 use crate::db_parser::InputSource;
 
 #[cfg(test)]
 pub fn random_test_dir() -> std::path::PathBuf {
     let tmp_dir = std::env::temp_dir();
-    let tdir: String = rand::Rng::sample_iter(rand::thread_rng(), &rand::distributions::Alphanumeric)
-        .take(17)
-        .map(char::from)
-        .collect();
+    let tdir: String =
+        rand::Rng::sample_iter(rand::thread_rng(), &rand::distributions::Alphanumeric)
+            .take(17)
+            .map(char::from)
+            .collect();
 
     let res = tmp_dir.join(tdir);
     std::fs::create_dir(&res).unwrap();
@@ -54,18 +55,21 @@ pub fn assert_compiles_data(source: &'static str, expected_json: serde_json::Val
 pub fn assert_compiles_data_paths(source: &[String], expected_json: serde_json::Value) {
     use assert_json_diff::assert_json_eq;
 
-    let mut input = source.iter().map(|i| {
-        let dir_path = i.to_string();
-        let mut p = std::fs::canonicalize(dir_path).unwrap();
-        let pres = p.pop();
-        assert!(pres);
-        let p = p.as_path().to_str().unwrap().to_string();
-        InputSource {
-            contents: None,
-            path: i.to_string(),
-            source_dir: Some(p),
-        }
-    }).collect::<Vec<_>>();
+    let mut input = source
+        .iter()
+        .map(|i| {
+            let dir_path = i.to_string();
+            let mut p = std::fs::canonicalize(dir_path).unwrap();
+            let pres = p.pop();
+            assert!(pres);
+            let p = p.as_path().to_str().unwrap().to_string();
+            InputSource {
+                contents: None,
+                path: i.to_string(),
+                source_dir: Some(p),
+            }
+        })
+        .collect::<Vec<_>>();
 
     let parsed = crate::db_parser::parse_sources_with_external(input.as_mut_slice());
     match &parsed {
@@ -133,8 +137,6 @@ pub fn assert_test_validaton_exception_return_error(
         Ok(_) => {
             panic!("Expected database validation error, test passed")
         }
-        Err(e) => {
-            e
-        }
+        Err(e) => e,
     }
 }

@@ -1,11 +1,11 @@
 #[cfg(test)]
-use serde_json::json;
-#[cfg(test)]
-use crate::checker::errors::DatabaseValidationError;
-#[cfg(test)]
 use super::common::assert_compiles_data;
 #[cfg(test)]
 use super::common::assert_test_validaton_exception_return_error;
+#[cfg(test)]
+use crate::checker::errors::DatabaseValidationError;
+#[cfg(test)]
+use serde_json::json;
 
 #[test]
 fn test_lua_extra_runtime_error() {
@@ -23,7 +23,9 @@ TABLE moo {
     if let DatabaseValidationError::LuaSourcesLoadError { error, source_file } = err {
         assert!(error.contains("syntax error"));
         assert_eq!(source_file, "inline");
-    } else { panic!() }
+    } else {
+        panic!()
+    }
 }
 
 #[test]
@@ -42,12 +44,16 @@ DATA cholo {
     );
 
     match e {
-        DatabaseValidationError::LuaCheckExpressionLoadError { error, table_name, expression } => {
+        DatabaseValidationError::LuaCheckExpressionLoadError {
+            error,
+            table_name,
+            expression,
+        } => {
             assert!(error.contains("syntax error"));
             assert_eq!(table_name, "cholo");
             assert_eq!(expression, " bozoso (() * moo ");
         }
-        _ => panic!()
+        _ => panic!(),
     }
 }
 
@@ -68,13 +74,20 @@ DATA cholo {
 
     match e {
         DatabaseValidationError::LuaCheckEvaluationErrorUnexpectedReturnType {
-            error, table_name, expression, column_names, row_values
+            error,
+            table_name,
+            expression,
+            column_names,
+            row_values,
         } => {
             assert_eq!(table_name, "cholo");
             assert_eq!(expression, " id * 3 ");
             assert_eq!(column_names, vec!["id".to_string()]);
             assert_eq!(row_values, vec!["2".to_string()]);
-            assert_eq!(error, "Unexpected expression return value, expected boolean, got integer");
+            assert_eq!(
+                error,
+                "Unexpected expression return value, expected boolean, got integer"
+            );
         }
         e => {
             panic!("{e}")
@@ -99,8 +112,12 @@ DATA cholo {
 
     match e {
         DatabaseValidationError::LuaCheckEvaluationFailed {
-            table_name, expression, column_names, row_values, error
-         } => {
+            table_name,
+            expression,
+            column_names,
+            row_values,
+            error,
+        } => {
             assert_eq!(table_name, "cholo");
             assert_eq!(expression, " id > 7 ");
             assert_eq!(column_names, vec!["id".to_string()]);
@@ -134,7 +151,7 @@ DATA cholo {
             "cholo": [
                 {"id": 2.0, "some_f": 3.5, "some_text": "and a salami!"}
             ]
-        })
+        }),
     );
 }
 
@@ -161,7 +178,7 @@ DATA cholo {
             "cholo": [
                 {"id": 2.0, "some_f": 3.5, "some_text": "and a salami!"}
             ]
-        })
+        }),
     );
 }
 
@@ -187,7 +204,7 @@ DATA cholo {
             "cholo": [
                 {"id": 2.0, "some_f": 3.5, "some_text": "and a salami!"}
             ]
-        })
+        }),
     );
 }
 
@@ -216,6 +233,6 @@ DATA cholo {
             "cholo": [
                 {"id": 2.0, "some_f": 3.5, "some_text": "and a salami!"}
             ]
-        })
+        }),
     );
 }

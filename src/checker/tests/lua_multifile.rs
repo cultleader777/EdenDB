@@ -1,9 +1,9 @@
 #[cfg(test)]
-use serde_json::json;
-#[cfg(test)]
 use super::common::assert_compiles_data_paths;
 #[cfg(test)]
 use super::common::random_test_dir;
+#[cfg(test)]
+use serde_json::json;
 
 #[test]
 fn lua_source_dir_constant() {
@@ -19,7 +19,9 @@ fn lua_source_dir_constant() {
     std::fs::write(tmp_dir.join("tst_a").join("test.lua"), src_to_write).unwrap();
     std::fs::write(tmp_dir.join("tst_b").join("test.lua"), src_to_write).unwrap();
 
-    std::fs::write(tmp_dir.join("root.edl"), r#"
+    std::fs::write(
+        tmp_dir.join("root.edl"),
+        r#"
       TABLE test_table {
         dirname TEXT,
       }
@@ -27,11 +29,13 @@ fn lua_source_dir_constant() {
       INCLUDE LUA "TMP_DIR/test.lua"
       INCLUDE LUA "TMP_DIR/tst_a/test.lua"
       INCLUDE LUA "TMP_DIR/tst_b/test.lua"
-    "#.replace("TMP_DIR", tmp_dir.to_str().unwrap())).unwrap();
+    "#
+        .replace("TMP_DIR", tmp_dir.to_str().unwrap()),
+    )
+    .unwrap();
 
-    let paths = [
-      "root.edl",
-    ].iter()
+    let paths = ["root.edl"]
+        .iter()
         .map(|i| tmp_dir.join(i).to_str().unwrap().to_string())
         .collect::<Vec<_>>();
 
@@ -44,6 +48,6 @@ fn lua_source_dir_constant() {
                 {"dirname": format!("{}/tst_a", tmp_dir)},
                 {"dirname": format!("{}/tst_b", tmp_dir)},
             ],
-        })
+        }),
     );
 }

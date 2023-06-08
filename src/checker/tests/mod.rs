@@ -2,6 +2,7 @@ mod child_foreign_keys;
 mod child_keys_and_foreign_keys;
 pub mod common;
 mod common_parent_fkeys;
+#[cfg(feature = "datalog")]
 mod datalog_proofs;
 mod detached_defaults;
 mod integration;

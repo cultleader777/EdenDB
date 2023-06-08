@@ -1,9 +1,16 @@
 #[cfg(test)]
+use super::common::{assert_compiles_data, assert_test_validaton_exception};
+#[cfg(test)]
+use crate::{
+    checker::{
+        errors::DatabaseValidationError,
+        logic::AllData,
+        types::{ColumnVector, DBIdentifier, DBType, KeyType},
+    },
+    db_parser::InputSource,
+};
+#[cfg(test)]
 use serde_json::json;
-#[cfg(test)]
-use crate::{checker::{errors::DatabaseValidationError, types::{DBIdentifier, DBType, KeyType, ColumnVector}, logic::AllData}, db_parser::InputSource};
-#[cfg(test)]
-use super::common::{assert_test_validaton_exception, assert_compiles_data};
 
 #[test]
 fn test_validating_basic_table_smoke() {
@@ -34,7 +41,11 @@ DATA servers(hostname, region) {
     "#;
     use crate::db_parser::InputSource;
 
-    let inp = &mut [InputSource { path: "test".to_string(), contents: Some(input.to_string()), source_dir: None, }];
+    let inp = &mut [InputSource {
+        path: "test".to_string(),
+        contents: Some(input.to_string()),
+        source_dir: None,
+    }];
     let parsed = crate::db_parser::parse_sources(inp);
     assert!(parsed.is_ok());
     let parsed = parsed.unwrap();
@@ -52,12 +63,12 @@ DATA servers(hostname, region) {
             let regions_full_name = &regions.columns[1];
 
             assert_eq!(regions_mnemonic.column_name.as_str(), "mnemonic");
-            assert_eq!(regions_mnemonic.data.column_type(), DBType::DBText);
-            assert_eq!(regions_mnemonic.key_type, KeyType::PrimaryKey);
+            assert_eq!(regions_mnemonic.data.column_type(), DBType::Text);
+            assert_eq!(regions_mnemonic.key_type, KeyType::Primary);
             assert!(!regions_mnemonic.data.has_default_value());
 
             assert_eq!(regions_full_name.column_name.as_str(), "full_name");
-            assert_eq!(regions_full_name.data.column_type(), DBType::DBText);
+            assert_eq!(regions_full_name.data.column_type(), DBType::Text);
             assert_eq!(regions_full_name.key_type, KeyType::NotAKey);
             assert!(!regions_full_name.data.has_default_value());
 
@@ -85,12 +96,12 @@ DATA servers(hostname, region) {
             let servers_disks = &servers.columns[2];
 
             assert_eq!(servers_hostname.column_name.as_str(), "hostname");
-            assert_eq!(servers_hostname.data.column_type(), DBType::DBText);
-            assert_eq!(servers_hostname.key_type, KeyType::PrimaryKey);
+            assert_eq!(servers_hostname.data.column_type(), DBType::Text);
+            assert_eq!(servers_hostname.key_type, KeyType::Primary);
             assert!(!servers_hostname.data.has_default_value());
 
             assert_eq!(servers_region.column_name.as_str(), "region");
-            assert_eq!(servers_region.data.column_type(), DBType::DBText);
+            assert_eq!(servers_region.data.column_type(), DBType::Text);
             assert_eq!(
                 servers_region.maybe_foreign_key,
                 Some(crate::checker::types::ForeignKey {
@@ -102,7 +113,7 @@ DATA servers(hostname, region) {
             assert!(!servers_region.data.has_default_value());
 
             assert_eq!(servers_disks.column_name.as_str(), "disks");
-            assert_eq!(servers_disks.data.column_type(), DBType::DBInt);
+            assert_eq!(servers_disks.data.column_type(), DBType::Int);
             assert_eq!(servers_disks.key_type, KeyType::NotAKey);
             if let ColumnVector::Ints(i) = &servers_disks.data {
                 assert_eq!(i.default_value, Some(1));
@@ -165,7 +176,11 @@ DATA regions {
 
     "#;
 
-    let inp = &mut [InputSource { path: "test".to_string(), contents: Some(input.to_string()), source_dir: None, }];
+    let inp = &mut [InputSource {
+        path: "test".to_string(),
+        contents: Some(input.to_string()),
+        source_dir: None,
+    }];
     let parsed = crate::db_parser::parse_sources(inp);
     assert!(parsed.is_ok());
     let parsed = parsed.unwrap();
@@ -183,12 +198,12 @@ DATA regions {
             let regions_full_name = &regions.columns[1];
 
             assert_eq!(regions_mnemonic.column_name.as_str(), "mnemonic");
-            assert_eq!(regions_mnemonic.data.column_type(), DBType::DBText);
-            assert_eq!(regions_mnemonic.key_type, KeyType::PrimaryKey);
+            assert_eq!(regions_mnemonic.data.column_type(), DBType::Text);
+            assert_eq!(regions_mnemonic.key_type, KeyType::Primary);
             assert!(!regions_mnemonic.data.has_default_value());
 
             assert_eq!(regions_full_name.column_name.as_str(), "full_name");
-            assert_eq!(regions_full_name.data.column_type(), DBType::DBText);
+            assert_eq!(regions_full_name.data.column_type(), DBType::Text);
             assert_eq!(regions_full_name.key_type, KeyType::NotAKey);
             assert!(!regions_full_name.data.has_default_value());
 
@@ -216,12 +231,12 @@ DATA regions {
             let servers_disks = &servers.columns[2];
 
             assert_eq!(servers_hostname.column_name.as_str(), "hostname");
-            assert_eq!(servers_hostname.data.column_type(), DBType::DBText);
-            assert_eq!(servers_hostname.key_type, KeyType::PrimaryKey);
+            assert_eq!(servers_hostname.data.column_type(), DBType::Text);
+            assert_eq!(servers_hostname.key_type, KeyType::Primary);
             assert!(!servers_hostname.data.has_default_value());
 
             assert_eq!(servers_region.column_name.as_str(), "region");
-            assert_eq!(servers_region.data.column_type(), DBType::DBText);
+            assert_eq!(servers_region.data.column_type(), DBType::Text);
             assert_eq!(
                 servers_region.maybe_foreign_key,
                 Some(crate::checker::types::ForeignKey {
@@ -233,7 +248,7 @@ DATA regions {
             assert!(!servers_region.data.has_default_value());
 
             assert_eq!(servers_disks.column_name.as_str(), "disks");
-            assert_eq!(servers_disks.data.column_type(), DBType::DBInt);
+            assert_eq!(servers_disks.data.column_type(), DBType::Int);
             assert_eq!(servers_disks.key_type, KeyType::NotAKey);
             if let ColumnVector::Ints(v) = &servers_disks.data {
                 assert_eq!(v.default_value, Some(1));
@@ -268,7 +283,6 @@ DATA regions {
         }
     }
 }
-
 
 #[test]
 fn test_validation_exception_defined_twice() {
@@ -487,7 +501,7 @@ fn test_validation_exception_cannot_parse_default_column_value() {
     assert_test_validaton_exception(
         DatabaseValidationError::CannotParseDefaultColumnValue {
             table_name: "cholo".to_string(),
-            column_type: DBType::DBInt,
+            column_type: DBType::Int,
             column_name: "id".to_string(),
             the_value: "1.23".to_string(),
         },
@@ -622,7 +636,7 @@ fn test_validation_exception_data_cannot_parse_column_value() {
             column_index: 2,
             column_name: "id2".to_string(),
             column_value: "hello bois".to_string(),
-            expected_type: DBType::DBInt,
+            expected_type: DBType::Int,
         },
         r#"
 TABLE cholo {
@@ -685,7 +699,7 @@ DATA STRUCT cholo {
             "cholo": [
                 {"id": 7.0, "id2": "sup"}
             ],
-        })
+        }),
     );
 }
 
@@ -887,7 +901,7 @@ DATA disks {
                 {"hostname": "mclassen", "dev_slot": "/dev/sda"},
                 {"hostname": "mclassen", "dev_slot": "/dev/sdb"},
             ]
-        })
+        }),
     );
 }
 
@@ -922,7 +936,7 @@ DATA disks {
                 {"hostname": "mclassen", "dev_slot": "/dev/sda"},
                 {"hostname": "doofus", "dev_slot": "/dev/sda"},
             ],
-        })
+        }),
     );
 }
 
@@ -1195,7 +1209,7 @@ TABLE stoof {
                 {"a_bool": true, "b_bool": false},
                 {"a_bool": false, "b_bool": true},
             ]
-        })
+        }),
     );
 }
 
@@ -1208,7 +1222,7 @@ fn test_boolean_parse_failure() {
             column_index: 1,
             column_name: "a_bool".to_string(),
             column_value: "1".to_string(),
-            expected_type: DBType::DBBool,
+            expected_type: DBType::Bool,
         },
         r#"
 DATA stoof {
@@ -1266,7 +1280,6 @@ DATA cholo {
         "#,
     );
 }
-
 
 #[test]
 fn test_prohibit_inf_floats() {
@@ -1344,6 +1357,6 @@ DATA disks {
                 {"hostname": "mclassen", "dev_slot": "/dev/sda"},
                 {"hostname": "mclassen", "dev_slot": "/dev/sdb"},
             ]
-        })
+        }),
     );
 }

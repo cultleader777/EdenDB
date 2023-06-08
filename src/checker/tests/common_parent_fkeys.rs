@@ -1,12 +1,11 @@
 #[cfg(test)]
-use serde_json::json;
-#[cfg(test)]
-use crate::checker::errors::DatabaseValidationError;
-#[cfg(test)]
 use super::common::assert_compiles_data;
 #[cfg(test)]
 use super::common::assert_test_validaton_exception;
-
+#[cfg(test)]
+use crate::checker::errors::DatabaseValidationError;
+#[cfg(test)]
+use serde_json::json;
 
 #[test]
 fn test_common_parent_foreign_keys() {
@@ -59,7 +58,7 @@ DATA docker_container_port {
             "docker_container_port": [
                 {"hostname": "epyc-1", "container_name": "doofus", "port_name": "somethin", "reserved_port": 1234.0}
             ]
-        })
+        }),
     );
 }
 
@@ -84,7 +83,7 @@ TABLE bogus_ref {
     ref_port_no REF reserved_port,
 }
 
-        "#
+        "#,
     );
 }
 
@@ -114,7 +113,7 @@ TABLE bogus_ref {
     ref_port_no REF reserved_port,
 }
 
-        "#
+        "#,
     );
 }
 
@@ -166,6 +165,6 @@ DATA docker_container_port {
     epyc-1, doofus, somethin, 4321;
 }
 
-        "#
+        "#,
     );
 }

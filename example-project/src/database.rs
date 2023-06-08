@@ -1,6 +1,6 @@
 // Test db content
 const DB_BYTES: &[u8] = include_bytes!("edb_data.bin");
-lazy_static!{
+lazy_static! {
     pub static ref DB: Database = Database::deserialize(DB_BYTES).unwrap();
 }
 
@@ -13,7 +13,6 @@ pub struct TableRowPointerDiskManufacturer(usize);
 
 #[derive(Copy, Clone, Debug, serde::Deserialize, PartialEq)]
 pub struct TableRowPointerDisks(usize);
-
 
 // Table struct types
 #[derive(Debug)]
@@ -38,7 +37,6 @@ pub struct TableRowDisks {
     pub parent: TableRowPointerServer,
 }
 
-
 // Table definitions
 pub struct TableDefinitionServer {
     rows: Vec<TableRowServer>,
@@ -62,7 +60,6 @@ pub struct TableDefinitionDisks {
     c_parent: Vec<TableRowPointerServer>,
 }
 
-
 // Database definition
 pub struct Database {
     server: TableDefinitionServer,
@@ -84,7 +81,7 @@ impl Database {
         &self.disks
     }
 
-    pub fn deserialize(compressed: &[u8]) -> Result<Database, Box<dyn ::std::error::Error>> {
+    pub fn deserialize(compressed: &[u8]) -> Result<Database, Box<dyn::std::error::Error>> {
         let hash_size = ::std::mem::size_of::<u64>();
         assert!(compressed.len() > hash_size);
         let compressed_end = compressed.len() - hash_size;
@@ -92,13 +89,16 @@ impl Database {
         let hash_slice = &compressed[compressed_end..];
         let encoded_hash = ::bincode::deserialize::<u64>(hash_slice).unwrap();
         let computed_hash = ::xxhash_rust::xxh3::xxh3_64(compressed_slice);
-        if encoded_hash != computed_hash { panic!("EdenDB data is corrupted, checksum mismatch.") }
+        if encoded_hash != computed_hash {
+            panic!("EdenDB data is corrupted, checksum mismatch.")
+        }
         let input = ::lz4_flex::decompress_size_prepended(compressed_slice).unwrap();
         let mut cursor = ::std::io::Cursor::new(input.as_slice());
 
         let server_hostname: Vec<::std::string::String> = ::bincode::deserialize_from(&mut cursor)?;
         let server_ram_mb: Vec<i64> = ::bincode::deserialize_from(&mut cursor)?;
-        let server_children_disks: Vec<Vec<TableRowPointerDisks>> = ::bincode::deserialize_from(&mut cursor)?;
+        let server_children_disks: Vec<Vec<TableRowPointerDisks>> =
+            ::bincode::deserialize_from(&mut cursor)?;
 
         let server_len = server_children_disks.len();
 
@@ -114,14 +114,17 @@ impl Database {
             });
         }
 
-        let disk_manufacturer_model: Vec<::std::string::String> = ::bincode::deserialize_from(&mut cursor)?;
-        let disk_manufacturer_referrers_disks__make: Vec<Vec<TableRowPointerDisks>> = ::bincode::deserialize_from(&mut cursor)?;
+        let disk_manufacturer_model: Vec<::std::string::String> =
+            ::bincode::deserialize_from(&mut cursor)?;
+        let disk_manufacturer_referrers_disks__make: Vec<Vec<TableRowPointerDisks>> =
+            ::bincode::deserialize_from(&mut cursor)?;
 
         let disk_manufacturer_len = disk_manufacturer_referrers_disks__make.len();
 
         assert_eq!(disk_manufacturer_len, disk_manufacturer_model.len());
 
-        let mut rows_disk_manufacturer: Vec<TableRowDiskManufacturer> = Vec::with_capacity(disk_manufacturer_len);
+        let mut rows_disk_manufacturer: Vec<TableRowDiskManufacturer> =
+            Vec::with_capacity(disk_manufacturer_len);
         for row in 0..disk_manufacturer_len {
             rows_disk_manufacturer.push(TableRowDiskManufacturer {
                 model: disk_manufacturer_model[row].clone(),
@@ -132,7 +135,8 @@ impl Database {
         let disks_disk_id: Vec<::std::string::String> = ::bincode::deserialize_from(&mut cursor)?;
         let disks_size_bytes: Vec<i64> = ::bincode::deserialize_from(&mut cursor)?;
         let disks_size_mb: Vec<i64> = ::bincode::deserialize_from(&mut cursor)?;
-        let disks_make: Vec<TableRowPointerDiskManufacturer> = ::bincode::deserialize_from(&mut cursor)?;
+        let disks_make: Vec<TableRowPointerDiskManufacturer> =
+            ::bincode::deserialize_from(&mut cursor)?;
         let disks_parent: Vec<TableRowPointerServer> = ::bincode::deserialize_from(&mut cursor)?;
 
         let disks_len = disks_parent.len();
@@ -152,7 +156,6 @@ impl Database {
                 parent: disks_parent[row],
             });
         }
-
 
         Ok(Database {
             server: TableDefinitionServer {
@@ -185,9 +188,7 @@ impl TableDefinitionServer {
     }
 
     pub fn rows_iter(&self) -> impl ::std::iter::Iterator<Item = TableRowPointerServer> {
-        (0..self.rows.len()).map(|idx| {
-            TableRowPointerServer(idx)
-        })
+        (0..self.rows.len()).map(|idx| TableRowPointerServer(idx))
     }
 
     pub fn row(&self, ptr: TableRowPointerServer) -> &TableRowServer {
@@ -205,7 +206,6 @@ impl TableDefinitionServer {
     pub fn c_children_disks(&self, ptr: TableRowPointerServer) -> &[TableRowPointerDisks] {
         &self.c_children_disks[ptr.0]
     }
-
 }
 
 impl TableDefinitionDiskManufacturer {
@@ -214,9 +214,7 @@ impl TableDefinitionDiskManufacturer {
     }
 
     pub fn rows_iter(&self) -> impl ::std::iter::Iterator<Item = TableRowPointerDiskManufacturer> {
-        (0..self.rows.len()).map(|idx| {
-            TableRowPointerDiskManufacturer(idx)
-        })
+        (0..self.rows.len()).map(|idx| TableRowPointerDiskManufacturer(idx))
     }
 
     pub fn row(&self, ptr: TableRowPointerDiskManufacturer) -> &TableRowDiskManufacturer {
@@ -226,7 +224,6 @@ impl TableDefinitionDiskManufacturer {
     pub fn c_model(&self, ptr: TableRowPointerDiskManufacturer) -> &::std::string::String {
         &self.c_model[ptr.0]
     }
-
 }
 
 impl TableDefinitionDisks {
@@ -235,9 +232,7 @@ impl TableDefinitionDisks {
     }
 
     pub fn rows_iter(&self) -> impl ::std::iter::Iterator<Item = TableRowPointerDisks> {
-        (0..self.rows.len()).map(|idx| {
-            TableRowPointerDisks(idx)
-        })
+        (0..self.rows.len()).map(|idx| TableRowPointerDisks(idx))
     }
 
     pub fn row(&self, ptr: TableRowPointerDisks) -> &TableRowDisks {
@@ -263,6 +258,4 @@ impl TableDefinitionDisks {
     pub fn c_parent(&self, ptr: TableRowPointerDisks) -> TableRowPointerServer {
         self.c_parent[ptr.0]
     }
-
 }
-

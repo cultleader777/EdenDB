@@ -389,59 +389,72 @@ pub enum DatabaseValidationError {
         // pretty printed json
         offending_columns: Vec<String>,
     },
+    #[cfg(feature = "datalog")]
     DatalogProofTableNotFound {
         table_name: String,
         comment: String,
         proof_expression: String,
     },
+    #[cfg(feature = "datalog")]
     DatalogProofOutputRuleNotFound {
         error: String,
         table_name: String,
         comment: String,
         proof_expression: String,
     },
+    #[cfg(feature = "datalog")]
     DatalogProofTooManyOutputRules {
         error: String,
         table_name: String,
         comment: String,
         proof_expression: String,
     },
+    #[cfg(feature = "datalog")]
     DatalogProofQueryParseError {
         error: String,
         table_name: String,
         comment: String,
         proof_expression: String,
     },
+    #[cfg(feature = "datalog")]
     DatalogProofNoRulesFound {
         error: String,
         table_name: String,
         comment: String,
         proof_expression: String,
     },
+    #[cfg(feature = "datalog")]
     DatalogProofBadOutputRuleFormat {
         error: String,
         table_name: String,
         comment: String,
         proof_expression: String,
     },
+    #[cfg(feature = "datalog")]
     DatalogProofTableExpectedNotFoundInTheOutputQuery {
         error: String,
         table_name: String,
         comment: String,
         proof_expression: String,
     },
+    #[cfg(feature = "datalog")]
     DatalogProofQueryingFailure {
         error: String,
         table_name: String,
         comment: String,
         proof_expression: String,
     },
+    #[cfg(feature = "datalog")]
     DatalogProofOffendersFound {
         table_name: String,
         comment: String,
         proof_expression: String,
         // pretty printed json
         offending_columns: Vec<String>,
+    },
+    #[cfg(not(feature = "datalog"))]
+    DatalogIsDisabled {
+        explanation: String,
     },
     SqlMatViewStatementPrepareException {
         table_name: String,
