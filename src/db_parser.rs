@@ -2,6 +2,7 @@ extern crate nom;
 
 use std::{
     collections::{HashSet, VecDeque},
+    error::Error,
     path::Path,
 };
 
@@ -100,15 +101,13 @@ impl TableColumn {
 
 /// Reading external files is disabled, mainly for testing
 #[cfg(test)]
-pub fn parse_sources(
-    input: &mut [InputSource],
-) -> Result<SourceOutputs, Box<dyn std::error::Error + '_>> {
+pub fn parse_sources(input: &mut [InputSource]) -> Result<SourceOutputs, Box<dyn Error + '_>> {
     parse_sources_inner(input, false)
 }
 
 pub fn parse_sources_with_external(
     input: &mut [InputSource],
-) -> Result<SourceOutputs, Box<dyn std::error::Error + '_>> {
+) -> Result<SourceOutputs, Box<dyn Error + '_>> {
     parse_sources_inner(input, true)
 }
 
@@ -130,7 +129,7 @@ pub fn strip_source_comments(input: &str) -> String {
 pub fn parse_sources_inner(
     input: &mut [InputSource],
     read_external_files: bool,
-) -> Result<SourceOutputs, Box<dyn std::error::Error + '_>> {
+) -> Result<SourceOutputs, Box<dyn Error + '_>> {
     let mut result = SourceOutputs {
         table_definitions: vec![],
         table_data_segments: vec![],
@@ -149,7 +148,8 @@ pub fn parse_sources_inner(
         maybe_read_input_source(i, read_external_files, &mut read_sources).unwrap();
 
         let src = i.contents.as_ref().unwrap();
-        let (_, res) = parse_source_with_path(src.as_str(), &i.source_dir)?;
+        let (_, res) = parse_source_with_path(src.as_str(), &i.source_dir)
+            .map_err(|e| to_parsing_error(&i.path, src.as_str(), e))?;
         queue.push_back(res);
     }
 
@@ -164,7 +164,8 @@ pub fn parse_sources_inner(
             maybe_read_input_source(d_seg, read_external_files, &mut read_sources).unwrap();
 
             let src = d_seg.contents.as_ref().unwrap();
-            let (_, res) = parse_source_with_path(src, &d_seg.source_dir).unwrap();
+            let (_, res) = parse_source_with_path(src, &d_seg.source_dir)
+                .map_err(|e| to_parsing_error(&d_seg.path, src.as_str(), e))?;
 
             queue.push_back(res);
         }
@@ -177,6 +178,42 @@ pub fn parse_sources_inner(
     }
 
     Ok(result)
+}
+
+#[derive(Debug)]
+struct ParsingError {
+    source_file: String,
+    output_message: String,
+}
+
+impl std::error::Error for ParsingError {}
+
+impl std::fmt::Display for ParsingError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{}: {}", self.source_file, self.output_message)
+    }
+}
+
+fn to_parsing_error(
+    filename: &str,
+    src: &str,
+    e: nom::Err<nom::error::VerboseError<&str>>,
+) -> ParsingError {
+    let e = match e {
+        nom::Err::Incomplete(_) => {
+            panic!("This branch should never be reached")
+        }
+        nom::Err::Error(e) => e,
+        nom::Err::Failure(e) => e,
+    };
+    let mut msg = nom::error::convert_error(src, e);
+    assert_eq!(&msg[0..3], "0: ");
+    let good_msg = msg.split_off(3);
+
+    ParsingError {
+        source_file: filename.to_string(),
+        output_message: good_msg,
+    }
 }
 
 fn parse_source_with_path<'a>(
@@ -200,7 +237,7 @@ fn maybe_read_input_source<'a>(
     seg: &'a mut InputSource,
     reading_ext_enabled: bool,
     already_read_register: &mut HashSet<String>,
-) -> Result<(), Box<dyn std::error::Error + 'a>> {
+) -> Result<(), Box<dyn Error + 'a>> {
     if seg.contents.is_none() {
         if reading_ext_enabled {
             let path = seg.path.clone();

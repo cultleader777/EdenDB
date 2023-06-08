@@ -30,7 +30,7 @@ fn main() {
 
     let sources = db_parser::parse_sources_with_external(inputs.as_mut_slice());
     if let Err(e) = sources.as_ref() {
-        err_print("syntax parsing error", e.as_ref());
+        eprint!("{e}");
         std::process::exit(1);
     }
     let sources = sources.unwrap();
