@@ -464,6 +464,11 @@ fn database_deserialization_function(
             output.push_str(&tlen_var);
             output.push_str(");\n");
 
+            // we may have more than one column,
+            // if we have only one column then clippy complains
+            // about using index iteration.
+            // not worth to change codegen technique for tables with one column.
+            output.push_str("        #[allow(clippy::needless_range_loop)]\n");
             output.push_str("        ");
             output.push_str("for row in 0..");
             output.push_str(&tlen_var);
