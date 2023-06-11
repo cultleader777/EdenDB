@@ -1,6 +1,6 @@
 let
   # Pinned nixpkgs, deterministic. Last updated: 2/12/21.
-  pkgs = import (fetchTarball("https://github.com/NixOS/nixpkgs/archive/ce6aa13369b667ac2542593170993504932eb836.tar.gz")) {};
+  pkgs = import (fetchTarball("https://github.com/NixOS/nixpkgs/archive/4d2b37a84fad1091b9de401eb450aae66f1a741e.tar.gz")) {};
 
 in pkgs.mkShell {
   buildInputs = [

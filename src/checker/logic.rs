@@ -227,13 +227,10 @@ impl AllData {
 
         for maybe_child in &self.tables {
             if maybe_child.name != parent_table.name {
-                match maybe_child.parent_table() {
-                    Some(parent) => {
-                        if parent == parent_table.name {
-                            res.push(maybe_child)
-                        }
+                if let Some(parent) = maybe_child.parent_table() {
+                    if parent == parent_table.name {
+                        res.push(maybe_child)
                     }
-                    None => {}
                 }
             }
         }
@@ -3144,18 +3141,14 @@ fn init_all_declared_tables(
 ) -> Result<(), DatabaseValidationError> {
     for tbl in outputs.table_definitions() {
         // check if table is already defined
-        match res.tables.iter().find(|i| i.name.as_str() == tbl.name) {
-            Some(t) => {
-                return Err(DatabaseValidationError::TableDefinedTwice {
-                    table_name: t.name.as_str().to_string(),
-                });
-            }
-            None => {}
+        if let Some(t) = res.tables.iter().find(|i| i.name.as_str() == tbl.name) {
+            return Err(DatabaseValidationError::TableDefinedTwice {
+                table_name: t.name.as_str().to_string(),
+            });
         }
 
-        match validate_table_definition(tbl) {
-            Some(err) => return Err(err),
-            None => {}
+        if let Some(err) = validate_table_definition(tbl) {
+            return Err(err);
         }
 
         let is_mat_view = tbl.mat_view_expression.is_some();
@@ -4685,20 +4678,17 @@ fn insert_extra_data_structured(
                             .iter()
                             .any(|i| i.key == col.column_name.as_str());
                         if !found {
-                            match row
+                            if let Some(v) = row
                                 .value_fields
                                 .iter()
                                 .find(|i| i.key == col.column_name.as_str())
                             {
-                                Some(v) => {
-                                    let new_item = ContextualInsertStackItem {
-                                        table: parent_table.as_str().to_string(),
-                                        key: col.column_name.as_str().to_string(),
-                                        value: v.value.clone(),
-                                    };
-                                    this_row_primary_key_values.insert(0, new_item);
-                                }
-                                None => {}
+                                let new_item = ContextualInsertStackItem {
+                                    table: parent_table.as_str().to_string(),
+                                    key: col.column_name.as_str().to_string(),
+                                    value: v.value.clone(),
+                                };
+                                this_row_primary_key_values.insert(0, new_item);
                             }
                         }
                     }
@@ -4882,20 +4872,17 @@ fn insert_extra_data_dataframes(
                         .iter()
                         .any(|i| i.key == col.column_name.as_str());
                     if !found {
-                        match tfields
+                        if let Some((cidx, _)) = tfields
                             .iter()
                             .enumerate()
                             .find(|i| i.1 == col.column_name.as_str())
                         {
-                            Some((cidx, _)) => {
-                                let new_item = ContextualInsertStackItem {
-                                    table: parent_table.as_str().to_string(),
-                                    key: col.column_name.as_str().to_string(),
-                                    value: ds.data[parent_row_idx].value_fields[cidx].clone(),
-                                };
-                                this_row_primary_key_values.insert(0, new_item);
-                            }
-                            None => {}
+                            let new_item = ContextualInsertStackItem {
+                                table: parent_table.as_str().to_string(),
+                                key: col.column_name.as_str().to_string(),
+                                value: ds.data[parent_row_idx].value_fields[cidx].clone(),
+                            };
+                            this_row_primary_key_values.insert(0, new_item);
                         }
                     }
                 }
