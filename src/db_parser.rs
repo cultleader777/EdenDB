@@ -25,6 +25,7 @@ pub struct TableColumn {
     pub the_type: String,
     pub is_reference_to_other_table: bool,
     pub is_reference_to_foreign_child_table: bool,
+    pub is_explicit_foreign_child_reference: bool,
     pub is_reference_to_self_child_table: bool,
     pub is_primary_key: bool,
     pub child_primary_key: Option<String>,
@@ -729,7 +730,11 @@ fn parse_table_column(input: &str) -> IResult<&str, TableRowReturn> {
                 tag("REF"),
                 multispace1,
                 opt(tuple((
-                    opt(tuple((tag("FOREIGN"), multispace1))),
+                    opt(tuple((
+                        opt(tuple((tag("EXPLICIT"), multispace1))),
+                        tag("FOREIGN"),
+                        multispace1,
+                    ))),
                     tag("CHILD"),
                     multispace1,
                 ))),
@@ -777,12 +782,19 @@ fn parse_table_column(input: &str) -> IResult<&str, TableRowReturn> {
     });
     let maybe_generated = is_generated.map(|(_, _, _, _, _, gen)| gen.to_string());
 
-    let is_reference_to_foreign_child_table = is_ref
+    let (is_reference_to_foreign_child_table, is_explicit_foreign_child_reference) = is_ref
         .map(|(_, _, child)| match child {
-            Some((is_foreign, _, _)) => is_foreign.is_some(),
-            None => false,
+            Some((is_foreign, _, _)) => {
+                match is_foreign {
+                    Some((is_explicit, _, _)) => {
+                        (true, is_explicit.is_some())
+                    }
+                    None => (false, false)
+                }
+            },
+            None => (false, false),
         })
-        .unwrap_or(false);
+        .unwrap_or((false, false));
 
     let is_reference_to_self_child_table = is_ref
         .map(|(_, _, child)| match child {
@@ -806,6 +818,7 @@ fn parse_table_column(input: &str) -> IResult<&str, TableRowReturn> {
             the_type: column_type.to_owned(),
             is_reference_to_other_table: is_ref.is_some(),
             is_reference_to_foreign_child_table,
+            is_explicit_foreign_child_reference,
             is_reference_to_self_child_table,
             is_primary_key: is_pkey,
             child_primary_key: maybe_child_prim_key,

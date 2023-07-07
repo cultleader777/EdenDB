@@ -805,3 +805,137 @@ DATA existant_parent {
         }),
     );
 }
+
+#[test]
+fn test_child_foreign_key_explicit_foreign_child() {
+    assert_compiles_data(
+        r#"
+TABLE existant_parent {
+    some_key INT PRIMARY KEY,
+}
+
+TABLE existant_child {
+    some_child_key INT PRIMARY KEY CHILD OF existant_parent,
+}
+
+TABLE child_of_parent {
+    some_child_key_2 INT PRIMARY KEY CHILD OF existant_parent,
+}
+
+TABLE good_ref {
+    inner_key INT PRIMARY KEY CHILD OF child_of_parent,
+    ref_key REF EXPLICIT FOREIGN CHILD existant_child,
+}
+        "#,
+        json!({
+            "existant_parent": [],
+            "existant_child": [],
+            "child_of_parent": [],
+            "good_ref": [],
+        }),
+    );
+}
+
+#[test]
+fn test_child_foreign_key_explicit_foreign_child_with_data() {
+    assert_compiles_data(
+        r#"
+TABLE existant_parent {
+    some_key INT PRIMARY KEY,
+}
+
+TABLE existant_child {
+    some_child_key INT PRIMARY KEY CHILD OF existant_parent,
+}
+
+TABLE child_of_parent {
+    some_child_key_2 INT PRIMARY KEY CHILD OF existant_parent,
+}
+
+TABLE good_ref {
+    inner_key INT PRIMARY KEY CHILD OF child_of_parent,
+    ref_key REF EXPLICIT FOREIGN CHILD existant_child,
+}
+
+DATA STRUCT existant_parent [
+  {
+    some_key: 7,
+    WITH existant_child {
+      some_child_key: 17
+    }
+    WITH child_of_parent {
+      some_child_key_2: 27
+      WITH good_ref {
+        inner_key: 37,
+        ref_key: 7=>17,
+      }
+    }
+  }
+]
+        "#,
+        json!({
+            "existant_parent": [
+                {"some_key": 7.0}
+            ],
+            "existant_child": [
+                {"some_key": 7.0, "some_child_key": 17.0}
+            ],
+            "child_of_parent": [
+                {"some_key": 7.0, "some_child_key_2": 27.0}
+            ],
+            "good_ref": [
+                {"some_key": 7.0, "some_child_key_2": 27.0, "inner_key": 37.0, "ref_key": "7=>17"},
+            ],
+        }),
+    );
+}
+
+#[test]
+fn test_child_foreign_key_explicit_foreign_child_unknown_key() {
+    assert_test_validaton_exception(
+        DatabaseValidationError::NonExistingForeignKeyToChildTable {
+            table_parent_keys: vec![],
+            table_parent_columns: vec![],
+            table_parent_tables: vec![],
+            table_with_foreign_key: "good_ref".to_string(),
+            foreign_key_column: "ref_key".to_string(),
+            referred_table: "existant_child".to_string(),
+            referred_table_column: "some_key=>some_child_key".to_string(),
+            key_value: "7=>18".to_string(),
+        },
+        r#"
+TABLE existant_parent {
+    some_key INT PRIMARY KEY,
+}
+
+TABLE existant_child {
+    some_child_key INT PRIMARY KEY CHILD OF existant_parent,
+}
+
+TABLE child_of_parent {
+    some_child_key_2 INT PRIMARY KEY CHILD OF existant_parent,
+}
+
+TABLE good_ref {
+    inner_key INT PRIMARY KEY CHILD OF child_of_parent,
+    ref_key REF EXPLICIT FOREIGN CHILD existant_child,
+}
+
+DATA STRUCT existant_parent [
+  {
+    some_key: 7,
+    WITH existant_child {
+      some_child_key: 17
+    }
+    WITH child_of_parent {
+      some_child_key_2: 27
+      WITH good_ref {
+        inner_key: 37,
+        ref_key: 7=>18,
+      }
+    }
+  }
+]
+        "#,
+    );
+}

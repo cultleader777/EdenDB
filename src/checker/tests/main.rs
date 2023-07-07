@@ -108,6 +108,7 @@ DATA servers(hostname, region) {
                     foreign_table: DBIdentifier::new("regions").unwrap(),
                     is_to_foreign_child_table: false,
                     is_to_self_child_table: false,
+                    is_explicit_foreign_child_reference: false,
                 })
             );
             assert!(!servers_region.data.has_default_value());
@@ -243,6 +244,7 @@ DATA regions {
                     foreign_table: DBIdentifier::new("regions").unwrap(),
                     is_to_foreign_child_table: false,
                     is_to_self_child_table: false,
+                    is_explicit_foreign_child_reference: false,
                 })
             );
             assert!(!servers_region.data.has_default_value());

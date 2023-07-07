@@ -1710,6 +1710,7 @@ fn ensure_child_foreign_keys_are_restricted(res: &AllData) -> Result<(), Databas
                 foreign_table,
                 is_to_foreign_child_table,
                 is_to_self_child_table,
+                ..
             }) = &column.maybe_foreign_key
             {
                 if *is_to_foreign_child_table {
@@ -2020,6 +2021,7 @@ fn ensure_child_primary_keys_unique_per_table_and_fkeys_exist(
                                 foreign_table,
                                 is_to_foreign_child_table,
                                 is_to_self_child_table,
+                                ..
                             }) = &fk_column.maybe_foreign_key
                             {
                                 if foreign_table.as_str() == t.name.as_str() {
@@ -3414,6 +3416,7 @@ fn validate_non_child_foreign_keys(res: &mut AllData) -> Result<(), DatabaseVali
                 foreign_table: to_table,
                 is_to_foreign_child_table,
                 is_to_self_child_table,
+                ..
             }) = &column.maybe_foreign_key
             {
                 if !*is_to_foreign_child_table && !*is_to_self_child_table {
@@ -3715,20 +3718,21 @@ fn validate_child_native_keys(res: &mut AllData) -> Result<(), DatabaseValidatio
 }
 
 fn validate_child_foreign_keys(res: &mut AllData) -> Result<(), DatabaseValidationError> {
-    let mut to_check_tables_vec: Vec<(DBIdentifier, Vec<(DBIdentifier, DBIdentifier)>)> =
+    let mut to_check_tables_vec: Vec<(DBIdentifier, Vec<(DBIdentifier, DBIdentifier)>, bool)> =
         Vec::new();
     for new_table in res.tables.iter() {
         for column in new_table.columns.iter() {
             if let Some(ForeignKey {
                 foreign_table: to_table,
                 is_to_foreign_child_table,
+                is_explicit_foreign_child_reference,
                 ..
             }) = &column.maybe_foreign_key
             {
                 if *is_to_foreign_child_table {
                     let mut found = false;
                     let to_insert = (new_table.name.clone(), column.column_name.clone());
-                    for (tbl, v) in &mut to_check_tables_vec {
+                    for (tbl, v, _) in &mut to_check_tables_vec {
                         if !found && tbl == to_table {
                             found = true;
                             v.push(to_insert.clone());
@@ -3736,7 +3740,7 @@ fn validate_child_foreign_keys(res: &mut AllData) -> Result<(), DatabaseValidati
                     }
 
                     if !found {
-                        to_check_tables_vec.push((to_table.clone(), vec![to_insert]))
+                        to_check_tables_vec.push((to_table.clone(), vec![to_insert], *is_explicit_foreign_child_reference))
                     }
                 }
             }
@@ -3744,7 +3748,7 @@ fn validate_child_foreign_keys(res: &mut AllData) -> Result<(), DatabaseValidati
     }
 
     let mut table_keys_to_restrict = HashSet::new();
-    for (referred_table, referees_vec) in &to_check_tables_vec {
+    for (referred_table, referees_vec, is_explicit_foreign_child_reference) in &to_check_tables_vec {
         let _ = table_keys_to_restrict.insert(referred_table.clone());
 
         // check table exists
@@ -3810,6 +3814,10 @@ fn validate_child_foreign_keys(res: &mut AllData) -> Result<(), DatabaseValidati
             let mut this_explicit_key: Vec<DBIdentifier> = Vec::new();
 
             let mut diverged = false;
+            if *is_explicit_foreign_child_reference {
+                // Key was told to be explicit from the root with EXPLICIT keyword
+                diverged = true;
+            }
             for (idx, p_prefix) in parent_tables_of_referee.iter().enumerate() {
                 match parent_tables_of_referrer_table.get(idx) {
                     Some(parent) => {
@@ -5178,6 +5186,7 @@ fn map_parsed_column_to_data_column(
         Some(ForeignKey {
             foreign_table: DBIdentifier::new(&input.the_type)?,
             is_to_foreign_child_table: input.is_reference_to_foreign_child_table,
+            is_explicit_foreign_child_reference: input.is_explicit_foreign_child_reference,
             is_to_self_child_table: input.is_reference_to_self_child_table,
         })
     } else {

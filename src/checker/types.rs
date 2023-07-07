@@ -32,6 +32,7 @@ pub enum KeyType {
 pub struct ForeignKey {
     pub foreign_table: DBIdentifier,
     pub is_to_foreign_child_table: bool,
+    pub is_explicit_foreign_child_reference: bool,
     pub is_to_self_child_table: bool,
 }
 
