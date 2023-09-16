@@ -680,6 +680,7 @@ fn assert_ocaml_db_compiled_dump_equals(source: &str, output_dump: &str) {
         path: "test".to_string(),
         contents: Some(source.to_string()),
         source_dir: None,
+        line_comments: Vec::new(),
     }];
 
     let sources = db_parser::parse_sources(inputs.as_mut_slice()).unwrap();

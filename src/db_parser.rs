@@ -1,7 +1,8 @@
 extern crate nom;
+use pretty_assertions::assert_eq;
 
 use std::{
-    collections::{HashSet, VecDeque},
+    collections::{HashSet, VecDeque, BTreeMap},
     error::Error,
     path::Path,
 };
@@ -14,10 +15,15 @@ use nom::{
     error::{ErrorKind, ParseError, VerboseError, VerboseErrorKind},
     multi::{many0, separated_list0, separated_list1},
     sequence::{delimited, preceded, tuple},
-    Parser,
+    Parser, Slice,
 };
+use nom_locate::LocatedSpan;
 
 use crate::checker::errors::DatabaseValidationError;
+
+pub type IResult<I, O, E = nom::error::VerboseError<I>> = Result<(I, O), nom::Err<E>>;
+
+type Span<'a> = LocatedSpan<&'a str>;
 
 #[derive(Debug)]
 pub struct TableColumn {
@@ -53,16 +59,23 @@ pub struct TableDefinition {
     pub mat_view_expression: Option<String>,
 }
 
+#[derive(PartialEq, Eq, Debug, Clone)]
+pub struct ValueWithPos {
+    pub value: String,
+    pub offset_start: usize,
+    pub offset_end: usize,
+}
+
 #[derive(PartialEq, Eq, Debug)]
 pub struct TableDataRow {
-    pub value_fields: Vec<String>,
+    pub value_fields: Vec<ValueWithPos>,
     pub extra_data: Vec<TableData>,
 }
 
 #[derive(PartialEq, Eq, Debug, Clone)]
 pub struct TableDataStructField {
     pub key: String,
-    pub value: String,
+    pub value: ValueWithPos,
 }
 
 #[derive(PartialEq, Eq, Debug)]
@@ -76,6 +89,7 @@ pub struct TableDataStruct {
     pub target_table_name: String,
     pub is_exclusive: bool,
     pub map: Vec<TableDataStructFields>,
+    pub source_file_id: i32,
 }
 
 #[derive(PartialEq, Eq, Debug)]
@@ -84,11 +98,14 @@ pub struct TableData {
     pub target_fields: Vec<String>,
     pub data: Vec<TableDataRow>,
     pub is_exclusive: bool,
+    pub source_file_id: i32,
 }
 
+#[derive(Clone)]
 pub struct InputSource {
     pub path: String,
     pub contents: Option<String>,
+    pub line_comments: Vec<String>,
     pub source_dir: Option<String>,
 }
 
@@ -112,19 +129,26 @@ pub fn parse_sources_with_external(
     parse_sources_inner(input, true)
 }
 
-pub fn strip_source_comments(input: &str) -> String {
+pub fn strip_source_comments(input: &str) -> (String, Vec<String>) {
     let mut res = String::with_capacity(input.len());
+    let mut comments: Vec<String> = Vec::new();
 
     for line in input.lines() {
         match line.split_once("//") {
-            Some((prefix, _)) => res += prefix,
-            None => res += line,
+            Some((prefix, comment)) => {
+                res += prefix;
+                comments.push(format!("//{comment}"));
+            },
+            None => {
+                res += line;
+                comments.push(String::default());
+            },
         }
 
         res += "\n";
     }
 
-    res
+    (res, comments)
 }
 
 pub fn parse_sources_inner(
@@ -132,13 +156,15 @@ pub fn parse_sources_inner(
     read_external_files: bool,
 ) -> Result<SourceOutputs, Box<dyn Error + '_>> {
     let mut result = SourceOutputs {
-        table_definitions: vec![],
-        table_data_segments: vec![],
-        lua_segments: vec![],
-        data_segments: vec![],
-        sql_proofs: vec![],
-        datalog_proofs: vec![],
-        detached_defaults: vec![],
+        table_definitions: Vec::new(),
+        table_data_segments: Vec::new(),
+        lua_segments: Vec::new(),
+        data_segments: Vec::new(),
+        sql_proofs: Vec::new(),
+        datalog_proofs: Vec::new(),
+        detached_defaults: Vec::new(),
+        sources_db: Vec::new(),
+        value_replacements: BTreeMap::new(),
     };
 
     let mut queue: VecDeque<SourceOutputs> = VecDeque::new();
@@ -149,9 +175,12 @@ pub fn parse_sources_inner(
         maybe_read_input_source(i, read_external_files, &mut read_sources).unwrap();
 
         let src = i.contents.as_ref().unwrap();
-        let (_, res) = parse_source_with_path(src.as_str(), &i.source_dir)
-            .map_err(|e| to_parsing_error(&i.path, src.as_str(), e))?;
+        let s: Span = Span::new(src.as_str());
+        let source_id = result.sources_db.len() as i32;
+        let (_, res) = parse_source_with_path(s, &i.source_dir, source_id)
+            .map_err(|e| to_parsing_error(&i.path, s, e))?;
         queue.push_back(res);
+        result.sources_db.push(i.clone());
     }
 
     while !queue.is_empty() {
@@ -159,16 +188,22 @@ pub fn parse_sources_inner(
 
         for lua_seg in &mut current.lua_segments {
             maybe_read_input_source(lua_seg, read_external_files, &mut read_sources).unwrap();
+            result.sources_db.push(lua_seg.clone());
         }
 
         for d_seg in &mut current.data_segments {
             maybe_read_input_source(d_seg, read_external_files, &mut read_sources).unwrap();
 
             let src = d_seg.contents.as_ref().unwrap();
-            let (_, res) = parse_source_with_path(src, &d_seg.source_dir)
-                .map_err(|e| to_parsing_error(&d_seg.path, src.as_str(), e))?;
+            let s: Span = Span::new(src.as_str());
+            let source_id = result.sources_db.len() as i32;
+            let (_, res) = parse_source_with_path(s, &d_seg.source_dir, source_id)
+                .map_err(|e| {
+                    to_parsing_error(&d_seg.path, s, e)
+                })?;
 
             queue.push_back(res);
+            result.sources_db.push(d_seg.clone());
         }
 
         finalized.push(current);
@@ -195,10 +230,138 @@ impl std::fmt::Display for ParsingError {
     }
 }
 
+// sometimes you gotta do what you gotta do
+mod nom_copy_pasta {
+    pub trait Offset {
+        /// Offset between the first byte of self and the first byte of the argument
+        fn offset(&self, second: &Self) -> usize;
+    }
+
+    impl<'a> Offset for &'a str {
+        fn offset(&self, second: &Self) -> usize {
+            let fst = self.as_ptr();
+            let snd = second.as_ptr();
+
+            snd as usize - fst as usize
+        }
+    }
+
+    pub fn convert_error(
+        input: super::Span,
+        e: super::VerboseError<super::Span>,
+    ) -> String {
+        use std::fmt::Write;
+
+        let mut result = String::new();
+
+        for (i, (substring, kind)) in e.errors.iter().enumerate() {
+            let offset = input.offset(substring);
+
+            if input.is_empty() {
+                match kind {
+                    super::VerboseErrorKind::Char(c) => {
+                        write!(&mut result, "{}: expected '{}', got empty input\n\n", i, c)
+                    }
+                    super::VerboseErrorKind::Context(s) => write!(&mut result, "{}: in {}, got empty input\n\n", i, s),
+                    super::VerboseErrorKind::Nom(e) => write!(&mut result, "{}: in {:?}, got empty input\n\n", i, e),
+                }
+            } else {
+                let prefix = &input.as_bytes()[..offset];
+
+                // Count the number of newlines in the first `offset` bytes of input
+                let line_number = prefix.iter().filter(|&&b| b == b'\n').count() + 1;
+
+                // Find the line that includes the subslice:
+                // Find the *last* newline before the substring starts
+                let line_begin = prefix
+                    .iter()
+                    .rev()
+                    .position(|&b| b == b'\n')
+                    .map(|pos| offset - pos)
+                    .unwrap_or(0);
+
+                // Find the full line after that newline
+                let line = input[line_begin..]
+                    .lines()
+                    .next()
+                    .unwrap_or(&input[line_begin..])
+                    .trim_end();
+
+                // The (1-indexed) column number is the offset of our substring into that line
+                let column_number = line.offset(substring) + 1;
+
+                match kind {
+                    super::VerboseErrorKind::Char(c) => {
+                        if let Some(actual) = substring.chars().next() {
+                            write!(
+                                &mut result,
+                                "{i}: at line {line_number}:\n\
+                                 {line}\n\
+                                 {caret:>column$}\n\
+                                 expected '{expected}', found {actual}\n\n",
+                                i = i,
+                                line_number = line_number,
+                                line = line,
+                                caret = '^',
+                                column = column_number,
+                                expected = c,
+                                actual = actual,
+                            )
+                        } else {
+                            write!(
+                                &mut result,
+                                "{i}: at line {line_number}:\n\
+                                 {line}\n\
+                                 {caret:>column$}\n\
+                                 expected '{expected}', got end of input\n\n",
+                                i = i,
+                                line_number = line_number,
+                                line = line,
+                                caret = '^',
+                                column = column_number,
+                                expected = c,
+                            )
+                        }
+                    }
+                    super::VerboseErrorKind::Context(s) => write!(
+                        &mut result,
+                        "{i}: at line {line_number}, in {context}:\n\
+                         {line}\n\
+                         {caret:>column$}\n\n",
+                        i = i,
+                        line_number = line_number,
+                        context = s,
+                        line = line,
+                        caret = '^',
+                        column = column_number,
+                    ),
+                    super::VerboseErrorKind::Nom(e) => write!(
+                        &mut result,
+                        "{i}: at line {line_number}, in {nom_err:?}:\n\
+                         {line}\n\
+                         {caret:>column$}\n\n",
+                        i = i,
+                        line_number = line_number,
+                        nom_err = e,
+                        line = line,
+                        caret = '^',
+                        column = column_number,
+                    ),
+                }
+            }
+            // Because `write!` to a `String` is infallible, this `unwrap` is fine.
+            .unwrap();
+        }
+
+        result
+    }
+}
+
+
 fn to_parsing_error(
     filename: &str,
-    src: &str,
-    e: nom::Err<nom::error::VerboseError<&str>>,
+    src: Span,
+    e: nom::Err<nom::error::VerboseError<Span>>,
 ) -> ParsingError {
     let e = match e {
         nom::Err::Incomplete(_) => {
@@ -207,7 +370,7 @@ fn to_parsing_error(
         nom::Err::Error(e) => e,
         nom::Err::Failure(e) => e,
     };
-    let mut msg = nom::error::convert_error(src, e);
+    let mut msg = nom_copy_pasta::convert_error(src, e);
     assert_eq!(&msg[0..3], "0: ");
     let good_msg = msg.split_off(3);
 
@@ -218,17 +381,18 @@ fn to_parsing_error(
 }
 
 fn parse_source_with_path<'a>(
-    src: &'a str,
-    source_path: &'a Option<String>,
-) -> IResult<&'a str, SourceOutputs> {
-    let (txt, mut res) = parse_source(src)?;
+    src: Span<'a>,
+    source_path: &Option<String>,
+    source_file_id: i32,
+) -> IResult<Span<'a>, SourceOutputs> {
+    let (txt, mut res) = parse_source(src, source_file_id)?;
 
     for lua_seg in &mut res.lua_segments {
         lua_seg.source_dir = source_path.clone();
     }
 
-    for lua_seg in &mut res.data_segments {
-        lua_seg.source_dir = source_path.clone();
+    for data_seg in &mut res.data_segments {
+        data_seg.source_dir = source_path.clone();
     }
 
     Ok((txt, res))
@@ -276,8 +440,9 @@ fn maybe_read_input_source<'a>(
     }
 
     if let Some(r) = seg.contents.as_mut() {
-        let mut stripped = strip_source_comments(r.as_str());
+        let (mut stripped, comments) = strip_source_comments(r.as_str());
         std::mem::swap(r, &mut stripped);
+        seg.line_comments = comments;
     }
 
     Ok(())
@@ -288,6 +453,14 @@ pub enum TableDataSegment {
     StructuredData(TableDataStruct),
 }
 
+pub type Replacements = BTreeMap<String, Vec<TableReplacement>>;
+
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct TableReplacement {
+    pub primary_key: String,
+    pub replacements: BTreeMap<String, String>,
+}
+
 pub struct SourceOutputs {
     table_definitions: Vec<TableDefinition>,
     table_data_segments: Vec<TableDataSegment>,
@@ -296,6 +469,8 @@ pub struct SourceOutputs {
     sql_proofs: Vec<ExpressionProof>,
     datalog_proofs: Vec<ExpressionProof>,
     detached_defaults: Vec<DetachedDefaults>,
+    sources_db: Vec<InputSource>,
+    value_replacements: Replacements,
 }
 
 impl SourceOutputs {
@@ -333,6 +508,18 @@ impl SourceOutputs {
     pub fn detached_defaults(&self) -> &[DetachedDefaults] {
         &self.detached_defaults
     }
+
+    pub fn value_replacements(&self) -> &Replacements {
+        &self.value_replacements
+    }
+
+    pub fn set_value_replacements(&mut self, r: Replacements) {
+        self.value_replacements = r;
+    }
+
+    pub fn sources_db(&self) -> &[InputSource] {
+        &self.sources_db
+    }
 }
 
 pub enum ValidExpressions {
@@ -367,7 +554,6 @@ enum ValidSourceSegments {
     DetachedDefaults(DetachedDefaults),
 }
 
-pub type IResult<I, O, E = nom::error::VerboseError<I>> = Result<(I, O), nom::Err<E>>;
 
 enum TableRowReturn {
     Col(TableColumn),
@@ -375,15 +561,17 @@ enum TableRowReturn {
     Check(TableRowCheck),
 }
 
-fn parse_source(input: &str) -> IResult<&str, SourceOutputs> {
+fn parse_source(input: Span, source_file_id: i32) -> IResult<Span, SourceOutputs> {
     let mut res = SourceOutputs {
-        table_definitions: vec![],
-        table_data_segments: vec![],
-        lua_segments: vec![],
-        data_segments: vec![],
-        sql_proofs: vec![],
-        datalog_proofs: vec![],
-        detached_defaults: vec![],
+        table_definitions: Vec::new(),
+        table_data_segments: Vec::new(),
+        lua_segments: Vec::new(),
+        data_segments: Vec::new(),
+        sql_proofs: Vec::new(),
+        datalog_proofs: Vec::new(),
+        detached_defaults: Vec::new(),
+        sources_db: Vec::new(),
+        value_replacements: BTreeMap::new(),
     };
 
     let (tail, output) = many0(preceded(
@@ -392,8 +580,8 @@ fn parse_source(input: &str) -> IResult<&str, SourceOutputs> {
             parse_include_segment,
             map(parse_table, ValidSourceSegments::TDef),
             map(parse_materialized_view, ValidSourceSegments::TDef),
-            map(parse_table_data, ValidSourceSegments::TData),
-            map(parse_table_data_structs, ValidSourceSegments::TDataStruct),
+            map(|i| { parse_table_data(i, source_file_id) }, ValidSourceSegments::TData),
+            map(|i| { parse_table_data_structs(i, source_file_id) }, ValidSourceSegments::TDataStruct),
             map(parse_sql_proof, ValidSourceSegments::ExpressionProof),
             map(
                 parse_detached_defaults,
@@ -447,14 +635,14 @@ fn parse_source(input: &str) -> IResult<&str, SourceOutputs> {
     Ok((tail, res))
 }
 
-fn curly_braces_expression(input: &str) -> IResult<&str, &str> {
+fn curly_braces_expression(input: Span) -> IResult<Span, Span> {
     let (tail, (_, content, _)) =
         tuple((char('{'), take_until_unbalanced('{', '}'), char('}'))).parse(input)?;
 
     Ok((tail, content))
 }
 
-fn parse_materialized_view(input: &str) -> IResult<&str, TableDefinition> {
+fn parse_materialized_view(input: Span) -> IResult<Span, TableDefinition> {
     let (tail, (_, _, _, _, table_name, _, rows, _, _, _, sql_expression)) = tuple((
         tag("MATERIALIZED"),
         multispace1,
@@ -485,7 +673,7 @@ fn parse_materialized_view(input: &str) -> IResult<&str, TableDefinition> {
     Ok((
         tail,
         TableDefinition {
-            name: table_name.to_owned(),
+            name: table_name.to_string(),
             columns,
             uniq_constraints,
             row_checks,
@@ -494,7 +682,7 @@ fn parse_materialized_view(input: &str) -> IResult<&str, TableDefinition> {
     ))
 }
 
-fn parse_table(input: &str) -> IResult<&str, TableDefinition> {
+fn parse_table(input: Span) -> IResult<Span, TableDefinition> {
     let (tail, (_, _, table_name, _, rows)) = tuple((
         tag("TABLE"),
         multispace1,
@@ -519,7 +707,7 @@ fn parse_table(input: &str) -> IResult<&str, TableDefinition> {
     Ok((
         tail,
         TableDefinition {
-            name: table_name.to_owned(),
+            name: table_name.to_string(),
             columns,
             uniq_constraints,
             row_checks,
@@ -528,7 +716,10 @@ fn parse_table(input: &str) -> IResult<&str, TableDefinition> {
     ))
 }
 
-fn parse_table_data(input: &str) -> IResult<&str, TableData> {
+fn parse_table_data<'a>(input: Span<'a>, source_file_id: i32) -> IResult<Span, TableData> {
+    let parse_table_data_inner = |input: Span<'a>| {
+        parse_table_data_rows_with_inner(input, source_file_id)
+    };
     let (tail, (_, _, is_exclusive, table_name, maybe_fields, _, _, data, ..)) = tuple((
         tag("DATA"),
         multispace1,
@@ -537,7 +728,7 @@ fn parse_table_data(input: &str) -> IResult<&str, TableData> {
         opt(tuple((multispace0, parse_bracket_field_list))),
         multispace1,
         char('{'),
-        parse_table_data_rows_with_inner,
+        parse_table_data_inner,
         char('}'),
     ))
     .parse(input)?;
@@ -547,15 +738,19 @@ fn parse_table_data(input: &str) -> IResult<&str, TableData> {
         target_fields: maybe_fields.map(|i| i.1).unwrap_or_default(),
         data,
         is_exclusive: is_exclusive.is_some(),
+        source_file_id,
     };
 
     Ok((tail, res))
 }
 
-fn parse_table_data_struct_literals(input: &str) -> IResult<&str, Vec<TableDataStructFields>> {
+fn parse_table_data_struct_literals<'a>(input: Span<'a>, source_file_id: i32) -> IResult<Span, Vec<TableDataStructFields>> {
+    let parse_table_data_structs_inner = |input: Span<'a>| {
+        parse_table_data_structs_with_inner(input, source_file_id)
+    };
     let (tail, res) = alt((
         map(
-            tuple((char('{'), parse_table_data_structs_with_inner, char('}'))),
+            tuple((char('{'), parse_table_data_structs_inner, char('}'))),
             |(_, sf, _)| vec![sf],
         ),
         map(
@@ -564,7 +759,7 @@ fn parse_table_data_struct_literals(input: &str) -> IResult<&str, Vec<TableDataS
                 multispace0,
                 separated_list1(
                     tuple((multispace0, char(','), multispace0)),
-                    tuple((char('{'), parse_table_data_structs_with_inner, char('}'))),
+                    tuple((char('{'), parse_table_data_structs_inner, char('}'))),
                 ),
                 opt(tuple((multispace0, char(',')))),
                 multispace0,
@@ -578,7 +773,10 @@ fn parse_table_data_struct_literals(input: &str) -> IResult<&str, Vec<TableDataS
     Ok((tail, res))
 }
 
-fn parse_table_data_structs(input: &str) -> IResult<&str, TableDataStruct> {
+fn parse_table_data_structs<'a>(input: Span<'a>, source_file_id: i32) -> IResult<Span, TableDataStruct> {
+    let parse_literals = |input: Span<'a>| {
+        parse_table_data_struct_literals(input, source_file_id)
+    };
     let (tail, (_, _, _, _, is_exclusive, table_name, _, data)) = tuple((
         tag("DATA"),
         multispace1,
@@ -587,11 +785,12 @@ fn parse_table_data_structs(input: &str) -> IResult<&str, TableDataStruct> {
         opt(tuple((tag("EXCLUSIVE"), multispace1))),
         valid_table_or_column_name,
         multispace1,
-        parse_table_data_struct_literals,
+        parse_literals,
     ))
     .parse(input)?;
 
     let res = TableDataStruct {
+        source_file_id,
         target_table_name: table_name.to_string(),
         is_exclusive: is_exclusive.is_some(),
         map: data,
@@ -600,7 +799,7 @@ fn parse_table_data_structs(input: &str) -> IResult<&str, TableDataStruct> {
     Ok((tail, res))
 }
 
-fn parse_sql_proof(input: &str) -> IResult<&str, ExpressionProof> {
+fn parse_sql_proof(input: Span) -> IResult<Span, ExpressionProof> {
     let (tail, (_, _, comment, _, _, _, _, _, _, _, tname, maybe_lang, _, sql_expression)) =
         tuple((
             tag("PROOF"),
@@ -627,7 +826,7 @@ fn parse_sql_proof(input: &str) -> IResult<&str, ExpressionProof> {
             output_table_name: tname.to_string(),
             expression: sql_expression.to_string(),
             expression_type: maybe_lang
-                .map(|(_, t)| match t {
+                .map(|(_, t)| match *t {
                     "SQL" => ValidExpressions::Sql,
                     "DATALOG" => ValidExpressions::Datalog,
                     _ => panic!("Must have matched some, bug in code."),
@@ -637,7 +836,7 @@ fn parse_sql_proof(input: &str) -> IResult<&str, ExpressionProof> {
     ))
 }
 
-fn parse_detached_defaults(input: &str) -> IResult<&str, DetachedDefaults> {
+fn parse_detached_defaults(input: Span) -> IResult<Span, DetachedDefaults> {
     let (full_tail, (_, _, cb)) =
         tuple((tag("DEFAULTS"), multispace1, curly_braces_expression)).parse(input)?;
 
@@ -658,7 +857,7 @@ fn parse_detached_defaults(input: &str) -> IResult<&str, DetachedDefaults> {
     ))
     .parse(cb)?;
 
-    let elems: Vec<(&str, char, &str, &str, &str)> = elems;
+    let elems: Vec<(Span, char, Span, Span, Span)> = elems;
 
     let mut res = DetachedDefaults { values: Vec::new() };
 
@@ -673,7 +872,7 @@ fn parse_detached_defaults(input: &str) -> IResult<&str, DetachedDefaults> {
     Ok((full_tail, res))
 }
 
-fn parse_include_segment(input: &str) -> IResult<&str, ValidSourceSegments> {
+fn parse_include_segment(input: Span) -> IResult<Span, ValidSourceSegments> {
     let (tail, (_, maybe_lang, _, src)) = tuple((
         tag("INCLUDE"),
         opt(tuple((multispace1, alt((tag("LUA"), tag("DATA")))))),
@@ -683,18 +882,20 @@ fn parse_include_segment(input: &str) -> IResult<&str, ValidSourceSegments> {
                 contents: Some(src.to_string()),
                 path: "inline".to_string(),
                 source_dir: None,
+                line_comments: Vec::new(),
             }),
             map(parse_quoted_text, |path| InputSource {
                 path: path.to_string(),
                 contents: None,
                 source_dir: None,
+                line_comments: Vec::new(),
             }),
         )),
     ))
     .parse(input)?;
 
     let seg = match maybe_lang {
-        Some((_, lang)) => match lang {
+        Some((_, lang)) => match *lang {
             "LUA" => ValidSourceSegments::LuaSegment(src),
             "DATA" => ValidSourceSegments::DataSegment(src),
             _ => {
@@ -707,7 +908,7 @@ fn parse_include_segment(input: &str) -> IResult<&str, ValidSourceSegments> {
     Ok((tail, seg))
 }
 
-fn parse_table_row(input: &str) -> IResult<&str, TableRowReturn> {
+fn parse_table_row(input: Span) -> IResult<Span, TableRowReturn> {
     alt((
         parse_table_column,
         parse_table_uniq_constraint,
@@ -716,7 +917,7 @@ fn parse_table_row(input: &str) -> IResult<&str, TableRowReturn> {
     .parse(input)
 }
 
-fn parse_table_column(input: &str) -> IResult<&str, TableRowReturn> {
+fn parse_table_column(input: Span) -> IResult<Span, TableRowReturn> {
     enum DefaultVariant {
         Hardcoded(String),
         Detached,
@@ -814,8 +1015,8 @@ fn parse_table_column(input: &str) -> IResult<&str, TableRowReturn> {
     Ok((
         tail,
         TableRowReturn::Col(TableColumn {
-            name: column_name.to_owned(),
-            the_type: column_type.to_owned(),
+            name: column_name.to_string(),
+            the_type: column_type.to_string(),
             is_reference_to_other_table: is_ref.is_some(),
             is_reference_to_foreign_child_table,
             is_explicit_foreign_child_reference,
@@ -829,7 +1030,7 @@ fn parse_table_column(input: &str) -> IResult<&str, TableRowReturn> {
     ))
 }
 
-fn parse_bracket_field_list(input: &str) -> IResult<&str, Vec<String>> {
+fn parse_bracket_field_list(input: Span) -> IResult<Span, Vec<String>> {
     let (tail, (_, _, out, ..)) = tuple((
         char('('),
         multispace0,
@@ -847,7 +1048,7 @@ fn parse_bracket_field_list(input: &str) -> IResult<&str, Vec<String>> {
     Ok((tail, res))
 }
 
-fn parse_table_uniq_constraint(input: &str) -> IResult<&str, TableRowReturn> {
+fn parse_table_uniq_constraint(input: Span) -> IResult<Span, TableRowReturn> {
     let (tail, (_, _, lst)) =
         tuple((tag("UNIQUE"), multispace0, parse_bracket_field_list)).parse(input)?;
 
@@ -856,7 +1057,7 @@ fn parse_table_uniq_constraint(input: &str) -> IResult<&str, TableRowReturn> {
     Ok((tail, TableRowReturn::Constraint(UniqConstraint { fields })))
 }
 
-fn parse_table_definition(input: &str) -> IResult<&str, Vec<TableRowReturn>> {
+fn parse_table_definition(input: Span) -> IResult<Span, Vec<TableRowReturn>> {
     let (tail, tdef) = curly_braces_expression(input)?;
 
     let (_, tpl) = tuple((
@@ -875,7 +1076,7 @@ fn parse_table_definition(input: &str) -> IResult<&str, Vec<TableRowReturn>> {
     Ok((tail, columns))
 }
 
-fn parse_row_check(input: &str) -> IResult<&str, TableRowReturn> {
+fn parse_row_check(input: Span) -> IResult<Span, TableRowReturn> {
     let res = tuple((tag("CHECK"), multispace1, curly_braces_expression)).parse(input)?;
 
     let (tail, (_, _, check_expr)) = res;
@@ -888,13 +1089,13 @@ fn parse_row_check(input: &str) -> IResult<&str, TableRowReturn> {
     ))
 }
 
-pub fn valid_table_or_column_name(input: &str) -> IResult<&str, &str> {
+pub fn valid_table_or_column_name(input: Span) -> IResult<Span, Span> {
     let (tail, tname) = take_while1(|c: char| c.is_alphanumeric() || c == '_').parse(input)?;
 
     Ok((tail, tname))
 }
 
-fn valid_unquoted_data_char(c: char) -> bool {
+pub fn valid_unquoted_data_char(c: char) -> bool {
     let valid_chars = "_-.!@#$%^&*=>";
     if c.is_alphanumeric() {
         return true;
@@ -909,7 +1110,7 @@ fn valid_unquoted_data_char(c: char) -> bool {
     false
 }
 
-fn valid_unquoted_data_word(input: &str) -> IResult<&str, &str> {
+fn valid_unquoted_data_word(input: Span) -> IResult<Span, Span> {
     let invalid_reserved_next_words = &["WITH", "GENERATED", "PRIMARY"];
 
     for inv in invalid_reserved_next_words {
@@ -924,7 +1125,7 @@ fn valid_unquoted_data_word(input: &str) -> IResult<&str, &str> {
     take_while1(valid_unquoted_data_char).parse(input)
 }
 
-fn valid_unquoted_data_segment(input: &str) -> IResult<&str, &str> {
+fn valid_unquoted_data_segment(input: Span) -> IResult<Span, Span> {
     recognize(tuple((
         valid_unquoted_data_word,
         many0(tuple((space1, valid_unquoted_data_word))),
@@ -932,7 +1133,7 @@ fn valid_unquoted_data_segment(input: &str) -> IResult<&str, &str> {
     .parse(input)
 }
 
-fn parse_quoted_text(input: &str) -> IResult<&str, &str> {
+fn parse_quoted_text(input: Span) -> IResult<Span, Span> {
     let (tail, res) = alt((
         delimited(
             char('\"'),
@@ -950,21 +1151,30 @@ fn parse_quoted_text(input: &str) -> IResult<&str, &str> {
     Ok((tail, res))
 }
 
-pub fn parse_table_data_point(input: &str) -> IResult<&str, &str> {
+pub fn parse_table_data_point(input: Span) -> IResult<Span, Span> {
     let (tail, res) = alt((parse_quoted_text, valid_unquoted_data_segment)).parse(input)?;
 
     Ok((tail, res))
 }
 
-fn parse_table_data_row_without_inner(input: &str) -> IResult<&str, Vec<String>> {
+fn parse_table_data_row_without_inner(input: Span) -> IResult<Span, Vec<ValueWithPos>> {
     let (tail, res) = separated_list1(
         tuple((multispace0, char(','), multispace0)),
         alt((parse_table_data_point, multispace0)),
     )
     .parse(input)?;
 
-    if res != [""] {
-        let res = res.iter().map(|i| i.to_string()).collect();
+    if res.len() != 1 || *res[0] != "" {
+        let res = res.iter().map(|i| {
+            let offset_start = i.location_offset();
+            let value = i.to_string();
+            let offset_end = offset_start + value.len();
+            ValueWithPos {
+                value,
+                offset_start,
+                offset_end
+            }
+        }).collect();
         Ok((tail, res))
     } else {
         Err(nom::Err::Error(VerboseError {
@@ -973,7 +1183,10 @@ fn parse_table_data_row_without_inner(input: &str) -> IResult<&str, Vec<String>>
     }
 }
 
-fn parse_table_data_rows_with_inner(input: &str) -> IResult<&str, Vec<TableDataRow>> {
+fn parse_table_data_rows_with_inner<'a>(input: Span<'a>, source_file_id: i32) -> IResult<Span, Vec<TableDataRow>> {
+    let parse_table_data_inner = |input: Span<'a>| {
+        parse_table_data_rows_with_inner(input, source_file_id)
+    };
     let (tail, (_, elems, ..)) = tuple((
         multispace0,
         separated_list1(
@@ -988,7 +1201,7 @@ fn parse_table_data_rows_with_inner(input: &str) -> IResult<&str, Vec<TableDataR
                     opt(tuple((multispace0, parse_bracket_field_list))),
                     multispace1,
                     char('{'),
-                    parse_table_data_rows_with_inner,
+                    parse_table_data_inner,
                     char('}'),
                 ))),
             )),
@@ -1000,32 +1213,34 @@ fn parse_table_data_rows_with_inner(input: &str) -> IResult<&str, Vec<TableDataR
 
     let res = elems
         .into_iter()
-        .map(|i| TableDataRow {
-            value_fields: i.0,
-            extra_data: i
-                .1
-                .into_iter()
-                .map(|j| {
-                    let extra_table = j.3;
-                    let maybe_column_labels = j.4;
-                    let the_matrix = j.7;
-                    let extra_target_fields =
-                        maybe_column_labels.map(|cl| cl.1).unwrap_or_default();
-                    TableData {
-                        target_table_name: extra_table.to_string(),
-                        target_fields: extra_target_fields,
-                        data: the_matrix,
-                        is_exclusive: false,
-                    }
-                })
-                .collect(),
-        })
+        .map(|i| {
+            TableDataRow {
+                value_fields: i.0,
+                extra_data: i
+                    .1
+                    .into_iter()
+                    .map(|j| {
+                        let extra_table = j.3;
+                        let maybe_column_labels = j.4;
+                        let the_matrix = j.7;
+                        let extra_target_fields =
+                            maybe_column_labels.map(|cl| cl.1).unwrap_or_default();
+                        TableData {
+                            source_file_id,
+                            target_table_name: extra_table.to_string(),
+                            target_fields: extra_target_fields,
+                            data: the_matrix,
+                            is_exclusive: false,
+                        }
+                    })
+                    .collect(),
+            }})
         .collect();
 
     Ok((tail, res))
 }
 
-fn parse_struct_kv_pair(input: &str) -> IResult<&str, TableDataStructField> {
+fn parse_struct_kv_pair(input: Span) -> IResult<Span, TableDataStructField> {
     let (tail, (k, _, _, _, v)) = tuple((
         valid_table_or_column_name,
         multispace0,
@@ -1035,16 +1250,27 @@ fn parse_struct_kv_pair(input: &str) -> IResult<&str, TableDataStructField> {
     ))
     .parse(input)?;
 
+    let offset_start = v.location_offset();
+    let value = v.to_string();
+    let offset_end = offset_start + value.len();
+
     Ok((
         tail,
         TableDataStructField {
             key: k.to_string(),
-            value: v.to_string(),
+            value: ValueWithPos {
+                value,
+                offset_start,
+                offset_end,
+            },
         },
     ))
 }
 
-fn parse_table_data_structs_with_inner(input: &str) -> IResult<&str, TableDataStructFields> {
+fn parse_table_data_structs_with_inner<'a>(input: Span<'a>, source_file_id: i32) -> IResult<Span, TableDataStructFields> {
+    let parse_literals = |input: Span<'a>| {
+        parse_table_data_struct_literals(input, source_file_id)
+    };
     let (tail, (_, elems, _, extra_data, ..)) = tuple((
         multispace0,
         separated_list1(
@@ -1058,7 +1284,7 @@ fn parse_table_data_structs_with_inner(input: &str) -> IResult<&str, TableDataSt
             multispace1,
             valid_table_or_column_name,
             multispace1,
-            parse_table_data_struct_literals,
+            parse_literals,
         ))),
         opt(tuple((multispace0, char(',')))),
         multispace0,
@@ -1071,6 +1297,7 @@ fn parse_table_data_structs_with_inner(input: &str) -> IResult<&str, TableDataSt
             .into_iter()
             .map(|(_, _, _, target_table, _, fields)| {
                 TableDataStruct {
+                    source_file_id,
                     target_table_name: target_table.to_string(),
                     map: fields,
                     // inner fields can never be exclusive
@@ -1088,8 +1315,8 @@ fn parse_table_data_structs_with_inner(input: &str) -> IResult<&str, TableDataSt
 pub fn take_until_unbalanced(
     opening_bracket: char,
     closing_bracket: char,
-) -> impl Fn(&str) -> IResult<&str, &str> {
-    move |i: &str| {
+) -> impl Fn(Span) -> IResult<Span, Span> {
+    move |i: Span| {
         let mut index = 0;
         let mut bracket_counter = 0;
         while let Some(n) = &i[index..].find(&[opening_bracket, closing_bracket, '\\'][..]) {
@@ -1119,12 +1346,13 @@ pub fn take_until_unbalanced(
             if bracket_counter == -1 {
                 // We do not consume it.
                 index -= closing_bracket.len_utf8();
-                return Ok((&i[index..], &i[0..index]));
+
+                return Ok((i.slice(index..), i.slice(0..index)));
             };
         }
 
         if bracket_counter == 0 {
-            Ok(("", i))
+            Ok((i.slice(0..0), i))
         } else {
             Err(nom::Err::Error(VerboseError::from_error_kind(
                 i,
@@ -1137,91 +1365,124 @@ pub fn take_until_unbalanced(
 #[test]
 fn test_parse_bracket_field_list() {
     assert_eq!(
-        parse_bracket_field_list(r#"(peace,bois)"#).unwrap().1,
+        parse_bracket_field_list(Span::new(r#"(peace,bois)"#)).unwrap().1,
         vec!["peace", "bois"],
     );
-    let res = parse_bracket_field_list(r#"(peace, bois)"#).unwrap();
+    let res = parse_bracket_field_list(Span::new(r#"(peace, bois)"#)).unwrap();
     assert_eq!(res.1, vec!["peace", "bois"],);
-    assert_eq!(res.0, "",);
-    let res = parse_bracket_field_list(r#"( peace , bois ) "#).unwrap();
+    assert_eq!(*res.0, "",);
+    let res = parse_bracket_field_list(Span::new(r#"( peace , bois ) "#)).unwrap();
     assert_eq!(res.1, vec!["peace", "bois"],);
-    assert_eq!(res.0, " ",);
-    assert!(parse_bracket_field_list(r#" ( peace , bois )"#).is_err(),);
-    assert!(parse_bracket_field_list(r#" ( peace , bois ) "#).is_err(),);
+    assert_eq!(*res.0, " ",);
+    assert!(parse_bracket_field_list(Span::new(r#" ( peace , bois )"#)).is_err(),);
+    assert!(parse_bracket_field_list(Span::new(r#" ( peace , bois ) "#)).is_err(),);
 }
 
 #[test]
 fn test_parsing_datapoint() {
     assert_eq!(
-        parse_table_data_point("\" bozo lozo rozo \"").unwrap().1,
+        *parse_table_data_point(Span::new("\" bozo lozo rozo \"")).unwrap().1,
         " bozo lozo rozo "
     );
     assert_eq!(
-        parse_table_data_point("\" bozo lozo\\ rozo \"").unwrap().1,
+        *parse_table_data_point(Span::new("\" bozo lozo\\ rozo \"")).unwrap().1,
         " bozo lozo\\ rozo "
     );
-    assert_eq!(parse_table_data_point("sup boi").unwrap().1, "sup boi");
-    assert_eq!(parse_table_data_point(r#""3,14""#).unwrap().1, "3,14");
-    assert_eq!(parse_table_data_point(r#"3.14-_@"#).unwrap().1, "3.14-_@");
-    let res = parse_table_data_point(r#"le WITH tag "#).unwrap();
-    assert_eq!(res.0, " WITH tag ");
-    assert_eq!(res.1, "le");
-    let res = parse_table_data_point(r#"le WITHboi "#).unwrap();
-    assert_eq!(res.0, " ");
-    assert_eq!(res.1, "le WITHboi");
-    let res = parse_table_data_point(r#"le WITH"#).unwrap();
-    assert_eq!(res.0, "");
-    assert_eq!(res.1, "le WITH");
-    let res = parse_table_data_point(r#"no cut pls "#).unwrap();
-    assert_eq!(res.0, " ");
-    assert_eq!(res.1, "no cut pls");
+    assert_eq!(*parse_table_data_point(Span::new("sup boi")).unwrap().1, "sup boi");
+    assert_eq!(*parse_table_data_point(Span::new(r#""3,14""#)).unwrap().1, "3,14");
+    assert_eq!(*parse_table_data_point(Span::new(r#"3.14-_@"#)).unwrap().1, "3.14-_@");
+    let res = parse_table_data_point(Span::new(r#"le WITH tag "#)).unwrap();
+    assert_eq!(*res.0, " WITH tag ");
+    assert_eq!(*res.1, "le");
+    let res = parse_table_data_point(Span::new(r#"le WITHboi "#)).unwrap();
+    assert_eq!(*res.0, " ");
+    assert_eq!(*res.1, "le WITHboi");
+    let res = parse_table_data_point(Span::new(r#"le WITH"#)).unwrap();
+    assert_eq!(*res.0, "");
+    assert_eq!(*res.1, "le WITH");
+    let res = parse_table_data_point(Span::new(r#"no cut pls "#)).unwrap();
+    assert_eq!(*res.0, " ");
+    assert_eq!(*res.1, "no cut pls");
 }
 
 #[test]
 fn test_parse_single_table_data_row() {
     assert_eq!(
-        parse_table_data_row_without_inner(r#"moo, boo ,hoo, 123 , "  456  ""#)
+        parse_table_data_row_without_inner(Span::new(r#"moo, boo ,hoo, 123 , "  456  ""#))
             .unwrap()
-            .1,
+            .1
+            .into_iter()
+            .map(|i| i.value)
+            .collect::<Vec<String>>(),
         ["moo", "boo", "hoo", "123", "  456  "]
             .iter()
             .map(|i| i.to_string())
             .collect::<Vec<String>>(),
     );
     assert_eq!(
-        parse_table_data_row_without_inner(r#",,,"#).unwrap().1,
+        parse_table_data_row_without_inner(Span::new(r#",,,"#))
+            .unwrap()
+            .1
+            .into_iter()
+            .map(|i| i.value)
+            .collect::<Vec<String>>(),
         ["", "", "", ""]
             .iter()
             .map(|i| i.to_string())
             .collect::<Vec<String>>(),
     );
     assert_eq!(
-        parse_table_data_row_without_inner(r#","#).unwrap().1,
+        parse_table_data_row_without_inner(Span::new(r#","#))
+            .unwrap()
+            .1
+            .into_iter()
+            .map(|i| i.value)
+            .collect::<Vec<String>>(),
         ["", ""]
             .iter()
             .map(|i| i.to_string())
             .collect::<Vec<String>>(),
     );
-    assert!(parse_table_data_row_without_inner(r#""#).is_err());
+    assert!(parse_table_data_row_without_inner(Span::new(r#""#)).is_err());
 }
 
 #[test]
 fn test_parse_multiple_table_data_rows_single() {
     assert_eq!(
         parse_table_data_rows_with_inner(
-            r#"
+            Span::new(r#"
             moo, boo ,hoo, 123 , "  456  "
-        "#
+        "#), 123
         )
         .unwrap()
         .1,
         vec![TableDataRow {
             value_fields: vec![
-                "moo".to_string(),
-                "boo".to_string(),
-                "hoo".to_string(),
-                "123".to_string(),
-                "  456  ".to_string()
+                ValueWithPos {
+                    offset_start: 13,
+                    offset_end: 16,
+                    value: "moo".to_string(),
+                },
+                ValueWithPos {
+                    offset_start: 18,
+                    offset_end: 21,
+                    value: "boo".to_string(),
+                },
+                ValueWithPos {
+                    offset_start: 23,
+                    offset_end: 26,
+                    value: "hoo".to_string(),
+                },
+                ValueWithPos {
+                    offset_start: 28,
+                    offset_end: 31,
+                    value: "123".to_string(),
+                },
+                ValueWithPos {
+                    offset_start: 35,
+                    offset_end: 42,
+                    value: "  456  ".to_string(),
+                },
             ],
             extra_data: vec![]
         },],
@@ -1236,80 +1497,187 @@ fn test_parse_multiple_table_data_rows_single_multi() {
         "  hey ho; here" , she goes
         ;sizzle; mcpizzle ; dizzle;,,,;
     "#;
-    let res = parse_table_data_rows_with_inner(test_str).unwrap();
+    let res = parse_table_data_rows_with_inner(Span::new(test_str), 123).unwrap();
     assert_eq!(
         res.1,
         vec![
             TableDataRow {
                 value_fields: vec![
-                    "moo".to_string(),
-                    "boo".to_string(),
-                    "hoo".to_string(),
-                    "123".to_string(),
-                    "  456  ".to_string()
+                    ValueWithPos {
+                        offset_start: 9,
+                        offset_end: 12,
+                        value: "moo".to_string(),
+                    },
+                    ValueWithPos {
+                        offset_start: 14,
+                        offset_end: 17,
+                        value: "boo".to_string(),
+                    },
+                    ValueWithPos {
+                        offset_start: 19,
+                        offset_end: 22,
+                        value: "hoo".to_string(),
+                    },
+                    ValueWithPos {
+                        offset_start: 24,
+                        offset_end: 27,
+                        value: "123".to_string(),
+                    },
+                    ValueWithPos {
+                        offset_start: 31,
+                        offset_end: 38,
+                        value: "  456  ".to_string(),
+                    },
                 ],
                 extra_data: vec![]
             },
             TableDataRow {
-                value_fields: vec!["peace".to_string(), "bois".to_string()],
-                extra_data: vec![]
-            },
-            TableDataRow {
                 value_fields: vec![
-                    "what up".to_string(),
-                    "wit it".to_string(),
-                    "vanilla face".to_string()
+                    ValueWithPos {
+                        offset_start: 41,
+                        offset_end: 46,
+                        value: "peace".to_string(),
+                    },
+                    ValueWithPos {
+                        offset_start: 48,
+                        offset_end: 52,
+                        value: "bois".to_string(),
+                    },
                 ],
                 extra_data: vec![]
             },
             TableDataRow {
-                value_fields: vec!["  hey ho; here".to_string(), "she goes".to_string()],
-                extra_data: vec![]
-            },
-            TableDataRow {
-                value_fields: vec!["sizzle".to_string()],
-                extra_data: vec![]
-            },
-            TableDataRow {
-                value_fields: vec!["mcpizzle".to_string()],
-                extra_data: vec![]
-            },
-            TableDataRow {
-                value_fields: vec!["dizzle".to_string()],
+                value_fields: vec![
+                    ValueWithPos {
+                        offset_start: 62,
+                        offset_end: 69,
+                        value: "what up".to_string(),
+                    },
+                    ValueWithPos {
+                        offset_start: 72,
+                        offset_end: 78,
+                        value: "wit it".to_string(),
+                    },
+                    ValueWithPos {
+                        offset_start: 80,
+                        offset_end: 92,
+                        value: "vanilla face".to_string(),
+                    },
+                ],
                 extra_data: vec![]
             },
             TableDataRow {
                 value_fields: vec![
-                    "".to_string(),
-                    "".to_string(),
-                    "".to_string(),
-                    "".to_string()
+                    ValueWithPos {
+                        offset_start: 103,
+                        offset_end: 117,
+                        value: "  hey ho; here".to_string(),
+                    },
+                    ValueWithPos {
+                        offset_start: 121,
+                        offset_end: 129,
+                        value: "she goes".to_string(),
+                    },
+                ],
+                extra_data: vec![]
+            },
+            TableDataRow {
+                value_fields: vec![
+                    ValueWithPos {
+                        offset_start: 139,
+                        offset_end: 145,
+                        value: "sizzle".to_string(),
+                    },
+                ],
+                extra_data: vec![]
+            },
+            TableDataRow {
+                value_fields: vec![
+                    ValueWithPos {
+                        offset_start: 147,
+                        offset_end: 155,
+                        value: "mcpizzle".to_string(),
+                    },
+                ],
+                extra_data: vec![]
+            },
+            TableDataRow {
+                value_fields: vec![
+                    ValueWithPos {
+                        offset_start: 158,
+                        offset_end: 164,
+                        value: "dizzle".to_string(),
+                    },
+                ],
+                extra_data: vec![]
+            },
+            TableDataRow {
+                value_fields: vec![
+                    ValueWithPos {
+                        offset_start: 165,
+                        offset_end: 165,
+                        value: "".to_string(),
+                    },
+                    ValueWithPos {
+                        offset_start: 166,
+                        offset_end: 166,
+                        value: "".to_string(),
+                    },
+                    ValueWithPos {
+                        offset_start: 167,
+                        offset_end: 167,
+                        value: "".to_string(),
+                    },
+                    ValueWithPos {
+                        offset_start: 168,
+                        offset_end: 168,
+                        value: "".to_string(),
+                    },
                 ],
                 extra_data: vec![]
             },
         ],
     );
-    assert_eq!(res.0, "");
+    assert_eq!(*res.0, "");
 }
 
 #[test]
 fn test_simple_parse_table_data_regression() {
     assert_eq!(
-        parse_table_data(r#"DATA servers { server, region WITH network { a } }"#)
+        parse_table_data(Span::new(r#"DATA servers { server, region WITH network { a } }"#), 123)
             .unwrap()
             .1,
         TableData {
+            source_file_id: 123,
             target_table_name: "servers".to_string(),
             target_fields: vec![],
             is_exclusive: false,
             data: vec![TableDataRow {
-                value_fields: vec!["server".to_string(), "region".to_string()],
+                value_fields: vec![
+                    ValueWithPos {
+                        offset_start: 15,
+                        offset_end: 21,
+                        value: "server".to_string(),
+                    },
+                    ValueWithPos {
+                        offset_start: 23,
+                        offset_end: 29,
+                        value: "region".to_string(),
+                    },
+                ],
                 extra_data: vec![TableData {
+                    source_file_id: 123,
                     target_table_name: "network".to_string(),
                     target_fields: vec![],
                     is_exclusive: false,
                     data: vec![TableDataRow {
-                        value_fields: vec!["a".to_string()],
+                        value_fields: vec![
+                            ValueWithPos {
+                                offset_start: 45,
+                                offset_end: 46,
+                                value: "a".to_string(),
+                            },
+                        ],
                         extra_data: vec![],
                     }],
                 },],
@@ -1321,19 +1689,30 @@ fn test_simple_parse_table_data_regression() {
 #[test]
 fn test_simple_parse_table_data() {
     assert_eq!(
-        parse_table_data(
+        parse_table_data(Span::new(
             r#"DATA mcshizzle ( my , bois ) {
             hello, bois;
-        }"#
-        )
+        }"#), 123)
         .unwrap()
         .1,
         TableData {
+            source_file_id: 123,
             target_table_name: "mcshizzle".to_string(),
             target_fields: vec!["my".to_string(), "bois".to_string()],
             is_exclusive: false,
             data: vec![TableDataRow {
-                value_fields: vec!["hello".to_string(), "bois".to_string()],
+                value_fields: vec![
+                    ValueWithPos {
+                        offset_start: 43,
+                        offset_end: 48,
+                        value: "hello".to_string(),
+                    },
+                    ValueWithPos {
+                        offset_start: 50,
+                        offset_end: 54,
+                        value: "bois".to_string(),
+                    },
+                ],
                 extra_data: vec![],
             }],
         },
@@ -1343,25 +1722,47 @@ fn test_simple_parse_table_data() {
 #[test]
 fn test_bigger_parse_table_data() {
     assert_eq!(
-        parse_table_data(
+        parse_table_data(Span::new(
             r#"DATA mcshizzle ( my , bois ) {
             hello, bois;
             "hey ",  " ho "
-        }"#
-        )
+        }"#), 123)
         .unwrap()
         .1,
         TableData {
+            source_file_id: 123,
             target_table_name: "mcshizzle".to_string(),
             target_fields: vec!["my".to_string(), "bois".to_string()],
             is_exclusive: false,
             data: vec![
                 TableDataRow {
-                    value_fields: vec!["hello".to_string(), "bois".to_string()],
+                    value_fields: vec![
+                        ValueWithPos {
+                            offset_start: 43,
+                            offset_end: 48,
+                            value: "hello".to_string(),
+                        },
+                        ValueWithPos {
+                            offset_start: 50,
+                            offset_end: 54,
+                            value: "bois".to_string(),
+                        },
+                    ],
                     extra_data: vec![],
                 },
                 TableDataRow {
-                    value_fields: vec!["hey ".to_string(), " ho ".to_string()],
+                    value_fields: vec![
+                        ValueWithPos {
+                            offset_start: 69,
+                            offset_end: 73,
+                            value: "hey ".to_string(),
+                        },
+                        ValueWithPos {
+                            offset_start: 78,
+                            offset_end: 82,
+                            value: " ho ".to_string(),
+                        },
+                    ],
                     extra_data: vec![],
                 },
             ],
@@ -1372,7 +1773,7 @@ fn test_bigger_parse_table_data() {
 #[test]
 fn test_optional_columns_table_data() {
     assert_eq!(
-        parse_table_data(
+        parse_table_data(Span::new(
             r#"DATA mcshizzle {
             hello, bois;
             "hey ",  " ho "
@@ -1383,50 +1784,123 @@ fn test_optional_columns_table_data() {
                 moo, hoo
               };
             slo, down, boi
-        }"#
-        )
+        }"#), 123)
         .unwrap()
         .1,
         TableData {
+            source_file_id: 123,
             target_table_name: "mcshizzle".to_string(),
             target_fields: vec![],
             is_exclusive: false,
             data: vec![
                 TableDataRow {
-                    value_fields: vec!["hello".to_string(), "bois".to_string()],
+                    value_fields: vec![
+                        ValueWithPos {
+                            offset_start: 29,
+                            offset_end: 34,
+                            value: "hello".to_string(),
+                        },
+                        ValueWithPos {
+                            offset_start: 36,
+                            offset_end: 40,
+                            value: "bois".to_string(),
+                        },
+                    ],
                     extra_data: vec![],
                 },
                 TableDataRow {
-                    value_fields: vec!["hey ".to_string(), " ho ".to_string()],
+                    value_fields: vec![
+                        ValueWithPos {
+                            offset_start: 55,
+                            offset_end: 59,
+                            value: "hey ".to_string(),
+                        },
+                        ValueWithPos {
+                            offset_start: 64,
+                            offset_end: 68,
+                            value: " ho ".to_string(),
+                        },
+                    ],
                     extra_data: vec![
                         TableData {
+                            source_file_id: 123,
                             target_table_name: "bananas".to_string(),
                             target_fields: vec!["som".to_string(), "cols".to_string()],
                             is_exclusive: false,
                             data: vec![
                                 TableDataRow {
-                                    value_fields: vec!["a".to_string(), "b".to_string()],
+                                    value_fields: vec![
+                                        ValueWithPos {
+                                            offset_start: 130,
+                                            offset_end: 131,
+                                            value: "a".to_string(),
+                                        },
+                                        ValueWithPos {
+                                            offset_start: 133,
+                                            offset_end: 134,
+                                            value: "b".to_string(),
+                                        },
+                                    ],
                                     extra_data: vec![],
                                 },
                                 TableDataRow {
-                                    value_fields: vec!["c".to_string(), "d".to_string()],
+                                    value_fields: vec![
+                                        ValueWithPos {
+                                            offset_start: 152,
+                                            offset_end: 153,
+                                            value: "c".to_string(),
+                                        },
+                                        ValueWithPos {
+                                            offset_start: 155,
+                                            offset_end: 156,
+                                            value: "d".to_string(),
+                                        },
+                                    ],
                                     extra_data: vec![]
                                 }
                             ]
                         },
                         TableData {
+                            source_file_id: 123,
                             target_table_name: "stinker".to_string(),
                             target_fields: vec![],
                             is_exclusive: false,
                             data: vec![TableDataRow {
-                                value_fields: vec!["moo".to_string(), "hoo".to_string()],
+                                value_fields: vec![
+                                    ValueWithPos {
+                                        offset_start: 205,
+                                        offset_end: 208,
+                                        value: "moo".to_string(),
+                                    },
+                                    ValueWithPos {
+                                        offset_start: 210,
+                                        offset_end: 213,
+                                        value: "hoo".to_string(),
+                                    },
+                                ],
                                 extra_data: vec![],
                             }]
                         }
                     ],
                 },
                 TableDataRow {
-                    value_fields: vec!["slo".to_string(), "down".to_string(), "boi".to_string()],
+                    value_fields: vec![
+                        ValueWithPos {
+                            offset_start: 243,
+                            offset_end: 246,
+                            value: "slo".to_string(),
+                        },
+                        ValueWithPos {
+                            offset_start: 248,
+                            offset_end: 252,
+                            value: "down".to_string(),
+                        },
+                        ValueWithPos {
+                            offset_start: 254,
+                            offset_end: 257,
+                            value: "boi".to_string(),
+                        },
+                    ],
                     extra_data: vec![],
                 },
             ],
@@ -1436,7 +1910,7 @@ fn test_optional_columns_table_data() {
 
 #[test]
 fn test_parse_table_name() {
-    assert!(valid_table_or_column_name("Meow_pLs").is_ok());
+    assert!(valid_table_or_column_name(Span::new("Meow_pLs")).is_ok());
 }
 
 #[test]
@@ -1445,12 +1919,12 @@ fn test_parse_example_table() {
         mnemonic String PRIMARY KEY,
         full_name String,
     }"#;
-    let res = parse_table(test_table);
+    let res = parse_table(Span::new(test_table));
 
     assert!(res.is_ok());
 
     let (input, td) = res.unwrap();
-    assert_eq!(input, "");
+    assert_eq!(*input, "");
     assert_eq!(td.name, "regions");
 
     assert_eq!(td.columns.len(), 2);
@@ -1475,12 +1949,12 @@ fn test_parse_uniq_constraint_table() {
         UNIQUE (server, name),
         UNIQUE (lol),
     }"#;
-    let res = parse_table(test_table);
+    let res = parse_table(Span::new(test_table));
 
     assert!(res.is_ok());
 
     let (input, td) = res.unwrap();
-    assert_eq!(input, "");
+    assert_eq!(*input, "");
     assert_eq!(td.name, "network_interfaces_ipv4");
 
     assert_eq!(td.columns.len(), 4);
@@ -1513,12 +1987,12 @@ fn test_parse_uniq_constraint_table() {
 
 #[test]
 fn test_smoke() {
-    let res = parse_source(test_data());
+    let res = parse_source(Span::new(test_data()), 0);
     assert!(res.is_ok());
     let (leftover, res) = res.unwrap();
     assert_eq!(res.table_definitions.len(), 4);
     assert_eq!(res.table_data_segments.len(), 2);
-    assert_eq!(leftover, "");
+    assert_eq!(*leftover, "");
 }
 
 #[cfg(test)]
@@ -1572,6 +2046,7 @@ fn test_syntax_error() {
         contents: Some(source.to_string()),
         path: "test".to_string(),
         source_dir: None,
+        line_comments: Vec::new(),
     }];
     let parsed = crate::db_parser::parse_sources(&mut inp);
     assert!(parsed.is_err());
@@ -1589,17 +2064,17 @@ fn test_nested_structs_parse() {
     } ,
 }"#;
 
-    let (tail, parsed) = parse_table_data_structs(source).unwrap();
+    let (tail, parsed) = parse_table_data_structs(Span::new(source), 123).unwrap();
 
-    assert_eq!(tail, "");
+    assert_eq!(*tail, "");
 
     assert_eq!(parsed.target_table_name, "server");
 
     assert_eq!(parsed.map[0].value_fields.len(), 2);
     assert_eq!(parsed.map[0].value_fields[0].key, "hostname");
-    assert_eq!(parsed.map[0].value_fields[0].value, "mclassen");
+    assert_eq!(parsed.map[0].value_fields[0].value.value, "mclassen");
     assert_eq!(parsed.map[0].value_fields[1].key, "dizzle");
-    assert_eq!(parsed.map[0].value_fields[1].value, "shizzle");
+    assert_eq!(parsed.map[0].value_fields[1].value.value, "shizzle");
 
     assert_eq!(parsed.map[0].extra_data.len(), 1);
     assert_eq!(parsed.map[0].extra_data[0].target_table_name, "disk");
@@ -1609,7 +2084,7 @@ fn test_nested_structs_parse() {
         "dev_slot"
     );
     assert_eq!(
-        parsed.map[0].extra_data[0].map[0].value_fields[0].value,
+        parsed.map[0].extra_data[0].map[0].value_fields[0].value.value,
         "/dev/sda"
     );
     assert_eq!(
@@ -1617,7 +2092,7 @@ fn test_nested_structs_parse() {
         "bozo"
     );
     assert_eq!(
-        parsed.map[0].extra_data[0].map[0].value_fields[1].value,
+        parsed.map[0].extra_data[0].map[0].value_fields[1].value.value,
         "7"
     );
     assert_eq!(
@@ -1625,7 +2100,7 @@ fn test_nested_structs_parse() {
         "lozo"
     );
     assert_eq!(
-        parsed.map[0].extra_data[0].map[0].value_fields[2].value,
+        parsed.map[0].extra_data[0].map[0].value_fields[2].value.value,
         "7.77"
     );
 }
@@ -1655,18 +2130,19 @@ fn test_nested_structs_parse_arrays() {
     }
 ]"#;
 
-    let (tail, parsed) = parse_table_data_structs(source).unwrap();
+    let (tail, parsed) = parse_table_data_structs(Span::new(source), 123).unwrap();
 
-    assert_eq!(tail, "");
+    assert_eq!(*tail, "");
 
     assert_eq!(parsed.target_table_name, "server");
+    assert_eq!(parsed.source_file_id, 123);
 
     assert_eq!(parsed.map.len(), 2);
     assert_eq!(parsed.map[0].value_fields.len(), 2);
     assert_eq!(parsed.map[0].value_fields[0].key, "hostname");
-    assert_eq!(parsed.map[0].value_fields[0].value, "mclassen");
+    assert_eq!(parsed.map[0].value_fields[0].value.value, "mclassen");
     assert_eq!(parsed.map[0].value_fields[1].key, "dizzle");
-    assert_eq!(parsed.map[0].value_fields[1].value, "shizzle");
+    assert_eq!(parsed.map[0].value_fields[1].value.value, "shizzle");
 
     assert_eq!(parsed.map[0].extra_data.len(), 1);
     assert_eq!(parsed.map[0].extra_data[0].target_table_name, "disk");
@@ -1678,7 +2154,7 @@ fn test_nested_structs_parse_arrays() {
         "dev_slot"
     );
     assert_eq!(
-        parsed.map[0].extra_data[0].map[0].value_fields[0].value,
+        parsed.map[0].extra_data[0].map[0].value_fields[0].value.value,
         "/dev/sda"
     );
     assert_eq!(
@@ -1686,7 +2162,7 @@ fn test_nested_structs_parse_arrays() {
         "bozo"
     );
     assert_eq!(
-        parsed.map[0].extra_data[0].map[0].value_fields[1].value,
+        parsed.map[0].extra_data[0].map[0].value_fields[1].value.value,
         "7"
     );
     assert_eq!(
@@ -1694,7 +2170,7 @@ fn test_nested_structs_parse_arrays() {
         "lozo"
     );
     assert_eq!(
-        parsed.map[0].extra_data[0].map[0].value_fields[2].value,
+        parsed.map[0].extra_data[0].map[0].value_fields[2].value.value,
         "7.77"
     );
 
@@ -1704,7 +2180,7 @@ fn test_nested_structs_parse_arrays() {
         "dev_slot"
     );
     assert_eq!(
-        parsed.map[0].extra_data[0].map[1].value_fields[0].value,
+        parsed.map[0].extra_data[0].map[1].value_fields[0].value.value,
         "/dev/sdb"
     );
     assert_eq!(
@@ -1712,7 +2188,7 @@ fn test_nested_structs_parse_arrays() {
         "bozo"
     );
     assert_eq!(
-        parsed.map[0].extra_data[0].map[1].value_fields[1].value,
+        parsed.map[0].extra_data[0].map[1].value_fields[1].value.value,
         "8"
     );
     assert_eq!(
@@ -1720,22 +2196,22 @@ fn test_nested_structs_parse_arrays() {
         "lozo"
     );
     assert_eq!(
-        parsed.map[0].extra_data[0].map[1].value_fields[2].value,
+        parsed.map[0].extra_data[0].map[1].value_fields[2].value.value,
         "8.88"
     );
 
     assert_eq!(parsed.map[1].value_fields.len(), 2);
     assert_eq!(parsed.map[1].value_fields[0].key, "hostname");
-    assert_eq!(parsed.map[1].value_fields[0].value, "thicc");
+    assert_eq!(parsed.map[1].value_fields[0].value.value, "thicc");
     assert_eq!(parsed.map[1].value_fields[1].key, "dizzle");
-    assert_eq!(parsed.map[1].value_fields[1].value, "boi");
+    assert_eq!(parsed.map[1].value_fields[1].value.value, "boi");
 }
 
 #[test]
 fn test_parse_row_check() {
-    let res = parse_row_check("CHECK { hey { boi } stop {doin} dat }");
+    let res = parse_row_check(Span::new("CHECK { hey { boi } stop {doin} dat }"));
     let (tail, res) = res.unwrap();
-    assert_eq!(tail, "");
+    assert_eq!(*tail, "");
     if let TableRowReturn::Check(c) = res {
         assert_eq!(
             c,

@@ -16,29 +16,34 @@ pub struct CodegenOutputs {
     files: Vec<CodegenOutputFile>,
 }
 
+/// Don't overwrite file if the same
+pub fn write_file_check_if_different(path: &PathBuf, content: &[u8]) {
+    match std::fs::read(&path) {
+        Ok(existing_bytes) => {
+            // write if not changed.
+            // help build tools not to rebuild if not needed
+            let current = xxhash_rust::xxh3::xxh3_64(existing_bytes.as_slice());
+            let to_write = xxhash_rust::xxh3::xxh3_64(content);
+            if current != to_write {
+                std::fs::write(&path, content).unwrap();
+            }
+        }
+        Err(e) => {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                std::fs::write(&path, content).unwrap();
+            } else {
+                panic!("{:?}", e)
+            }
+        }
+    }
+}
+
 impl CodegenOutputs {
     pub fn dump_to_dir(&self, output_dir: &str) {
         let dir_path = PathBuf::from(output_dir);
         for i in &self.files {
             let fpath = dir_path.join(i.filename.as_str());
-            match std::fs::read(&fpath) {
-                Ok(existing_bytes) => {
-                    // write if not changed.
-                    // help build tools not to rebuild if not needed
-                    let current = xxhash_rust::xxh3::xxh3_64(existing_bytes.as_slice());
-                    let to_write = xxhash_rust::xxh3::xxh3_64(i.content.as_slice());
-                    if current != to_write {
-                        std::fs::write(&fpath, i.content.as_slice()).unwrap();
-                    }
-                }
-                Err(e) => {
-                    if e.kind() == std::io::ErrorKind::NotFound {
-                        std::fs::write(&fpath, i.content.as_slice()).unwrap();
-                    } else {
-                        panic!("{:?}", e)
-                    }
-                }
-            }
+            write_file_check_if_different(&fpath, &i.content);
         }
     }
 }
@@ -97,6 +102,7 @@ fn assert_eden_db_binary_dump_equals(source: &str, expected_dump: &[u8]) {
         path: "test".to_string(),
         contents: Some(source.to_string()),
         source_dir: None,
+        line_comments: Vec::new(),
     }];
 
     let gen = rust::RustCodegen::default();

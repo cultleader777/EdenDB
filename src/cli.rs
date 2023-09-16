@@ -15,6 +15,10 @@ pub struct Cli {
     #[clap(long)]
     pub sqlite_output_file: Option<String>,
 
+    /// Replacements json file to replace data in sources
+    #[clap(long)]
+    pub replacements_file: Option<String>,
+
     /// Input sources to compile and check
     #[clap(required = true, min_values(1))]
     pub inputs: Vec<String>,

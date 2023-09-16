@@ -80,6 +80,7 @@ fn test_regression_2() {
         contents: Some(source.to_string()),
         path: "test".to_string(),
         source_dir: None,
+        line_comments: Vec::new(),
     }];
     let parsed = crate::db_parser::parse_sources(&mut inp);
     assert!(parsed.is_err());

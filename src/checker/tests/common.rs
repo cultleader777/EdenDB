@@ -28,6 +28,7 @@ pub fn assert_compiles_data(source: &'static str, expected_json: serde_json::Val
         contents: Some(source.to_string()),
         path: "test".to_string(),
         source_dir: None,
+        line_comments: Vec::new(),
     }];
 
     let parsed = crate::db_parser::parse_sources(input);
@@ -67,6 +68,7 @@ pub fn assert_compiles_data_paths(source: &[String], expected_json: serde_json::
                 contents: None,
                 path: i.to_string(),
                 source_dir: Some(p),
+                line_comments: Vec::new(),
             }
         })
         .collect::<Vec<_>>();
@@ -93,6 +95,92 @@ pub fn assert_compiles_data_paths(source: &[String], expected_json: serde_json::
 }
 
 #[cfg(test)]
+pub fn assert_compiles_data_paths_error_source_replacements(source: &[String], replacements: &str) -> DatabaseValidationError {
+    let mut input = source
+        .iter()
+        .map(|i| {
+            let dir_path = i.to_string();
+            let mut p = std::fs::canonicalize(dir_path).unwrap();
+            let pres = p.pop();
+            assert!(pres);
+            let p = p.as_path().to_str().unwrap().to_string();
+            InputSource {
+                contents: None,
+                path: i.to_string(),
+                source_dir: Some(p),
+                line_comments: Vec::new(),
+            }
+        })
+        .collect::<Vec<_>>();
+
+    let parsed = crate::db_parser::parse_sources_with_external(input.as_mut_slice());
+    match &parsed {
+        Err(e) => {
+            panic!("Error when parsing: {}", e);
+        }
+        Ok(_) => {}
+    }
+    let mut parsed = parsed.unwrap();
+    let replacements: crate::db_parser::Replacements = serde_json::from_str(replacements).expect("Can't parse replacements json");
+    parsed.set_value_replacements(replacements);
+    assert!(parsed.table_definitions().len() + parsed.table_data_segments().len() > 0);
+    let all_data = AllData::new(parsed);
+    match all_data {
+        Ok(_) => {
+            panic!("Expected error when running this test, but passed");
+        }
+        Err(e) => {
+            return e;
+        }
+    }
+}
+
+#[cfg(test)]
+pub fn assert_compiles_data_with_source_replacements(source: &[String], replacements: &str, expected_json: &serde_json::Value) {
+    use assert_json_diff::assert_json_eq;
+
+    let mut input = source
+        .iter()
+        .map(|i| {
+            let dir_path = i.to_string();
+            let mut p = std::fs::canonicalize(dir_path).unwrap();
+            let pres = p.pop();
+            assert!(pres);
+            let p = p.as_path().to_str().unwrap().to_string();
+            InputSource {
+                contents: None,
+                path: i.to_string(),
+                source_dir: Some(p),
+                line_comments: Vec::new(),
+            }
+        })
+        .collect::<Vec<_>>();
+
+    let parsed = crate::db_parser::parse_sources_with_external(input.as_mut_slice());
+    match &parsed {
+        Err(e) => {
+            panic!("Error when parsing: {}", e);
+        }
+        Ok(_) => {}
+    }
+    let mut parsed = parsed.unwrap();
+    let replacements: crate::db_parser::Replacements = serde_json::from_str(replacements).expect("Can't parse replacements json");
+    parsed.set_value_replacements(replacements);
+
+    assert!(parsed.table_definitions().len() + parsed.table_data_segments().len() > 0);
+    let all_data = AllData::new(parsed);
+    match all_data {
+        Ok(res) => {
+            let out_json = res.data_as_json();
+            assert_json_eq!(expected_json, out_json)
+        }
+        Err(e) => {
+            panic!("Expected ok, got: {}", e)
+        }
+    }
+}
+
+#[cfg(test)]
 pub fn assert_test_validaton_exception(
     expected_exception: DatabaseValidationError,
     source: &'static str,
@@ -101,6 +189,7 @@ pub fn assert_test_validaton_exception(
         contents: Some(source.to_string()),
         path: "test".to_string(),
         source_dir: None,
+        line_comments: Vec::new(),
     }];
 
     let parsed = crate::db_parser::parse_sources(input);
@@ -126,6 +215,7 @@ pub fn assert_test_validaton_exception_return_error(
         path: "test".to_string(),
         contents: Some(source.to_string()),
         source_dir: None,
+        line_comments: Vec::new(),
     }];
 
     let parsed = crate::db_parser::parse_sources(input);

@@ -311,3 +311,27 @@ DEFAULTS {
     server.something_else 777,
 }
 ```
+
+* 2023-09-13
+
+Get input positions...
+Input now becomes Span, output we set to anything we want.
+
+* 2023-09-14
+
+big refactor done, offset values delivered.
+
+DONE: fix tests
+DONE: think of the place to perform the replacements...
+we need to process table metadata, determine what is primary key, then apply changes to the vectors and to the source files.
+
+* 2023-09-15
+
+DONE: fix comment stripping because that messes up our offsets...
+wait a sec, I can just to all the processing just readd the comments?
+
+* 2023-09-15
+
+almost everything works
+DONE: fix struct replacements
+DONE: write tests for errors

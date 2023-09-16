@@ -16,3 +16,4 @@ mod sql_materialized_views;
 mod sql_proofs;
 mod struct_statement;
 mod with_statement;
+mod replacements;

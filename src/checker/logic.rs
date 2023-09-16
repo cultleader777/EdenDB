@@ -1,8 +1,8 @@
 #![allow(clippy::needless_range_loop)]
 
 use std::{
-    collections::{HashMap, HashSet},
-    sync::Mutex,
+    collections::{HashMap, HashSet, BTreeMap},
+    sync::Mutex, path::PathBuf, str::FromStr,
 };
 
 use mlua::Function;
@@ -18,8 +18,8 @@ use crate::{
     },
     db_parser::{
         SourceOutputs, TableColumn, TableData, TableDataSegment, TableDataStruct,
-        TableDataStructField, TableDataStructFields, TableDefinition,
-    },
+        TableDataStructField, TableDataStructFields, TableDefinition, ValueWithPos, valid_unquoted_data_char,
+    }, codegen::write_file_check_if_different,
 };
 
 use super::{
@@ -82,6 +82,19 @@ pub struct ParentKeyRelationshipData {
     pub children_for_parents_index: Vec<Vec<usize>>,
 }
 
+pub struct SingleRowReplacement {
+    pub values: BTreeMap<String, String>,
+    pub use_count: std::cell::RefCell<usize>,
+}
+
+#[derive(Clone)]
+pub struct ScheduledValueReplacementInSource {
+    pub source_file_idx: i32,
+    pub offset_start: usize,
+    pub offset_end: usize,
+    pub value_to_replace_with: String,
+}
+
 pub struct AllData {
     pub(crate) tables: Vec<DataTable>,
     pub(crate) foreign_keys_map: HashMap<ForeignKeyRelationship, ForeignKeyRelationshipData>,
@@ -90,6 +103,8 @@ pub struct AllData {
     pub(crate) foreign_to_native_child_keys_map:
         HashMap<ForeignKeyToNativeChildRelationship, ForeignKeyToNativeChildRelationshipData>,
     pub(crate) parent_child_keys_map: HashMap<ParentKeyRelationship, ParentKeyRelationshipData>,
+    pub(crate) table_replacements: HashMap<usize, HashMap<String, SingleRowReplacement>>,
+    pub(crate) source_replacements: Vec<ScheduledValueReplacementInSource>,
     pub(crate) lua_runtime: Lazy<Mutex<mlua::Lua>>,
     pub(crate) sqlite_db: Lazy<SqliteDBs>,
     #[cfg(feature = "datalog")]
@@ -104,6 +119,8 @@ impl AllData {
             foreign_to_foreign_child_keys_map: HashMap::new(),
             foreign_to_native_child_keys_map: HashMap::new(),
             parent_child_keys_map: HashMap::new(),
+            table_replacements: HashMap::new(),
+            source_replacements: Vec::new(),
             lua_runtime: Lazy::new(|| Mutex::new(mlua::Lua::new())),
             sqlite_db: Lazy::new(|| {
                 let this_counter = rand::thread_rng().gen::<usize>();
@@ -147,9 +164,12 @@ impl AllData {
         crunch_tables_metadata(&mut res, &outputs)?;
         check_exclusive_data_violations(outputs.table_data_segments())?;
 
+        // insert all data with replacements if they exist
+        check_replacements(&mut res, &outputs)?;
         insert_main_data(&mut res, &outputs)?;
         insert_extra_data(&mut res, outputs.table_data_segments())?;
         maybe_insert_lua_data(&mut res, &outputs)?;
+        check_unused_replacements(&mut res)?;
         compute_generated_columns(&mut res)?;
         maybe_insert_sqlite_data(&mut res, &outputs, sqlite_needed)?;
         compute_materialized_views(&mut res)?;
@@ -160,6 +180,9 @@ impl AllData {
         maybe_prepare_datalog_data(&mut res, &outputs)?;
         #[cfg(feature = "datalog")]
         run_datalog_proofs(&mut res, &outputs)?;
+
+        // after all checks have passed process replacements if they exist
+        process_source_replacements(&mut res, &outputs);
 
         Ok(res)
     }
@@ -450,6 +473,167 @@ impl AllData {
         res.sort_by_key(|t| t.name.as_str());
         res
     }
+}
+
+fn check_replacements(
+    res: &mut AllData,
+    outputs: &SourceOutputs,
+) -> Result<(), DatabaseValidationError> {
+
+    // check that all tables exist and that colums referred to exist
+    for (table_name, values) in outputs.value_replacements() {
+        let table_name = DBIdentifier::new(&table_name)?;
+        let table = res.find_table_named_idx(&table_name);
+        if table.is_empty() {
+            return Err(DatabaseValidationError::ReplacementsTargetTableDoesntExist {
+                table: table_name.as_str().to_string(),
+            });
+        }
+
+        assert_eq!(table.len(), 1);
+        let table_idx = table[0];
+        let table = &res.tables[table_idx];
+
+        if let Some(pkey) = table.primary_key_column() {
+            match &pkey.key_type {
+                KeyType::Primary => {} // ok
+                _ => {
+                    // now support only this easy case
+                    return Err(DatabaseValidationError::ReplacementsIsSupportedOnlyBySinglePrimaryKey {
+                        table: table_name.as_str().to_string(),
+                    });
+                }
+            }
+        } else {
+            return Err(DatabaseValidationError::ReplacementsTargetTableDoesntHavePrimaryKey {
+                table: table_name.as_str().to_string(),
+            });
+        }
+
+        let mut prim_key_map: HashSet<&String> = HashSet::new();
+
+        // duplicate keys could be passed
+        for row in values {
+            if !prim_key_map.insert(&row.primary_key) {
+                return Err(DatabaseValidationError::ReplacementsDuplicatePrimaryKeyDetected {
+                    table: table_name.as_str().to_string(),
+                    replacement_primary_key: row.primary_key.clone(),
+                });
+            }
+
+            // just check if it exists
+            for (target_column, _) in &row.replacements {
+                let found = table.columns.iter().find(|i| i.column_name.as_str() == target_column);
+                if let Some(found) = found {
+                    if found.generate_expression.is_some() {
+                        return Err(DatabaseValidationError::ReplacementCannotBeProvidedForGeneratedColumn {
+                            table: table_name.as_str().to_string(),
+                            replacement_primary_key: row.primary_key.clone(),
+                            generated_column: target_column.as_str().to_string(),
+                        });
+                    }
+                } else {
+                    return Err(DatabaseValidationError::ReplacementsColumnNotFound {
+                        table: table_name.as_str().to_string(),
+                        replacement_primary_key: row.primary_key.clone(),
+                        column_not_found: target_column.as_str().to_string(),
+                        available_columns: table.columns.iter().map(|i| i.column_name.as_str().to_string()).collect(),
+                    });
+                }
+            }
+
+            let e = res.table_replacements.entry(table_idx).or_default();
+            let v = SingleRowReplacement {
+                use_count: std::cell::RefCell::new(0),
+                values: row.replacements.clone(),
+            };
+            assert!(e.insert(row.primary_key.clone(), v).is_none());
+        }
+    }
+
+    Ok(())
+}
+
+fn process_source_replacements(res: &mut AllData, so: &SourceOutputs) {
+    if res.source_replacements.is_empty() {
+        return;
+    }
+
+    // 1. group by all replacements into source files
+    // 2. sort all the replacements in every source file
+    // 3. run the loop to execute the replacements to create new string
+    // 4. readd comments to lines as if nothing happpened
+    // 5. write to the disk
+
+    let mut replacements_map: BTreeMap<i32, Vec<ScheduledValueReplacementInSource>> = BTreeMap::new();
+    for repl in &res.source_replacements {
+        let v = replacements_map.entry(repl.source_file_idx).or_default();
+        v.push(repl.clone());
+    }
+
+    for v in replacements_map.values_mut() {
+        v.sort_by_key(|i| i.offset_start);
+    }
+
+    for (source_idx, replacements) in &replacements_map {
+        let source_idx: usize = (*source_idx).try_into().expect("Invalid replacements shouldn't exist?");
+        let target_to_replace = &so.sources_db()[source_idx];
+        let source = target_to_replace.contents.as_ref().unwrap();
+
+        let mut output_source = String::with_capacity(source.len());
+        let mut source_cursor: usize = 0;
+        for repl in replacements {
+            output_source += &source[source_cursor..repl.offset_start];
+            let pre = if repl.offset_start > 0 { source.as_bytes().get(repl.offset_start - 1) } else { None };
+            let post = source.as_bytes().get(repl.offset_end);
+            let is_already_quoted = pre.as_deref() == Some(&b'"') && post.as_deref() == Some(&b'"');
+            let should_be_quoted = !is_already_quoted && !repl.value_to_replace_with.chars().all(valid_unquoted_data_char);
+            // TODO: nice error handling?
+            assert!(!repl.value_to_replace_with.contains("\""));
+            if should_be_quoted {
+                output_source.push('"');
+            }
+            output_source += &repl.value_to_replace_with;
+            if should_be_quoted {
+                output_source.push('"');
+            }
+            source_cursor = repl.offset_end;
+        }
+        output_source += &source[source_cursor..];
+
+        let mut with_comments: String = String::with_capacity(output_source.len());
+        for (idx, line) in output_source.lines().enumerate() {
+            with_comments += line;
+            with_comments += &target_to_replace.line_comments[idx];
+            with_comments += "\n";
+        }
+
+        println!("Writing modifications to file {}", &target_to_replace.path);
+        let path = PathBuf::from_str(&target_to_replace.path).unwrap();
+        write_file_check_if_different(&path, with_comments.as_bytes());
+    }
+}
+
+fn check_unused_replacements(
+    res: &mut AllData,
+) -> Result<(), DatabaseValidationError> {
+
+    for (table_idx, v) in &res.table_replacements {
+        for (replacement_pkey, repl_value) in v {
+            let use_count = repl_value.use_count.borrow();
+            if *use_count == 0 {
+                return Err(DatabaseValidationError::ReplacementNeverUsed {
+                    table: res.tables[*table_idx].name.as_str().to_string(),
+                    replacement_primary_key: replacement_pkey.clone(),
+                    replacement_uses: *use_count,
+                    replacement_columns: repl_value.values.keys().map(|i| i.clone()).collect(),
+                    replacement_values: repl_value.values.values().map(|i| i.clone()).collect(),
+                });
+            }
+        }
+    }
+
+    Ok(())
 }
 
 fn maybe_load_lua_runtime(
@@ -4095,12 +4279,16 @@ fn insert_main_data(
         match ds {
             TableDataSegment::DataFrame(df) => {
                 let mut data_slices = Vec::with_capacity(df.data.len());
+                let mut replacement_maps: Vec<Vec<(i32, usize, usize)>> = Vec::with_capacity(df.data.len());
                 for i in df.data.iter() {
                     let mut row = Vec::with_capacity(i.value_fields.len());
+                    let mut replacement_map: Vec<(i32, usize, usize)> = Vec::with_capacity(i.value_fields.len());
                     for f in i.value_fields.iter() {
-                        row.push(f.as_str());
+                        row.push(f.value.as_str());
+                        replacement_map.push((df.source_file_id, f.offset_start, f.offset_end));
                     }
                     data_slices.push(row);
+                    replacement_maps.push(replacement_map);
                 }
                 let target_fields = df
                     .target_fields
@@ -4112,6 +4300,7 @@ fn insert_main_data(
                     df.target_table_name.as_str(),
                     &target_fields,
                     &data_slices,
+                    &replacement_maps,
                     df.is_exclusive,
                 )?;
             }
@@ -4141,6 +4330,8 @@ fn insert_structured_data(
             table_name: res.tables[tbl_idx].name.as_str().to_string(),
         });
     }
+
+    let replacements = res.table_replacements.get(&tbl_idx);
 
     for row in &sd.map {
         let mut uniq_fields = HashMap::with_capacity(row.value_fields.len());
@@ -4184,9 +4375,31 @@ fn insert_structured_data(
             }
         }
 
+        let mut row_replacement = None;
         for col in &mut res.tables[tbl_idx].columns {
             let is_required = col.is_required();
             let kv_idx = uniq_fields.get(&col.column_name);
+
+            if let Some(replacements) = replacements {
+                if let Some(kv_idx) = kv_idx {
+                    if col.key_type == KeyType::Primary {
+                        let value = &row.value_fields[*kv_idx].value;
+                        if let Some(replacement) = replacements.get(&value.value) {
+                            // can only come from lua
+                            if sd.source_file_id < 0 {
+                                return Err(DatabaseValidationError::ReplacementOverLuaGeneratedValuesIsNotSupported {
+                                    table: res.tables[tbl_idx].name.as_str().to_string(),
+                                    replacement_primary_key: value.value.clone(),
+                                });
+                            }
+
+                            *replacement.use_count.borrow_mut() += 1;
+                            row_replacement = Some(replacement);
+                        }
+                    }
+                }
+            }
+            // primary key is always first column, we can rely on that
             if col.generate_expression.is_some() {
                 if kv_idx.is_some() {
                     return Err(
@@ -4207,7 +4420,22 @@ fn insert_structured_data(
                             assert!(res, "Default value is assumed to exist here");
                         } else {
                             let kv_idx = *kv_idx.unwrap();
-                            v.v.push(row.value_fields[kv_idx].value.clone());
+                            let to_push =
+                                if let Some(row_replacement) = &row_replacement {
+                                    let to_use = row_replacement.values.get(col.column_name.as_str()).unwrap();
+                                    res.source_replacements.push(
+                                        ScheduledValueReplacementInSource {
+                                            source_file_idx: sd.source_file_id,
+                                            offset_start: row.value_fields[kv_idx].value.offset_start,
+                                            offset_end: row.value_fields[kv_idx].value.offset_end,
+                                            value_to_replace_with: to_use.clone(),
+                                        }
+                                    );
+                                to_use
+                            } else {
+                                &row.value_fields[kv_idx].value.value
+                            };
+                            v.v.push(to_push.clone());
                         }
                     }
                     ColumnVector::Ints(v) => {
@@ -4217,7 +4445,22 @@ fn insert_structured_data(
                             assert!(res, "Default value is assumed to exist here");
                         } else {
                             let kv_idx = *kv_idx.unwrap();
-                            match row.value_fields[kv_idx].value.parse::<i64>() {
+                            let to_push =
+                                if let Some(row_replacement) = &row_replacement {
+                                    let to_use = row_replacement.values.get(col.column_name.as_str()).unwrap();
+                                    res.source_replacements.push(
+                                        ScheduledValueReplacementInSource {
+                                            source_file_idx: sd.source_file_id,
+                                            offset_start: row.value_fields[kv_idx].value.offset_start,
+                                            offset_end: row.value_fields[kv_idx].value.offset_end,
+                                            value_to_replace_with: to_use.clone(),
+                                        }
+                                    );
+                                to_use
+                            } else {
+                                &row.value_fields[kv_idx].value.value
+                            };
+                            match to_push.parse::<i64>() {
                                 Ok(i) => {
                                     v.v.push(i);
                                 }
@@ -4227,7 +4470,7 @@ fn insert_structured_data(
                                             table_name: sd.target_table_name.clone(),
                                             column_name: col.column_name.as_str().to_string(),
                                             expected_type: col.data.column_type(),
-                                            column_value: row.value_fields[kv_idx].value.clone(),
+                                            column_value: row.value_fields[kv_idx].value.value.clone(),
                                         },
                                     );
                                 }
@@ -4241,7 +4484,22 @@ fn insert_structured_data(
                             assert!(res, "Default value is assumed to exist here");
                         } else {
                             let kv_idx = *kv_idx.unwrap();
-                            match row.value_fields[kv_idx].value.parse::<f64>() {
+                            let to_push =
+                                if let Some(row_replacement) = &row_replacement {
+                                    let to_use = row_replacement.values.get(col.column_name.as_str()).unwrap();
+                                    res.source_replacements.push(
+                                        ScheduledValueReplacementInSource {
+                                            source_file_idx: sd.source_file_id,
+                                            offset_start: row.value_fields[kv_idx].value.offset_start,
+                                            offset_end: row.value_fields[kv_idx].value.offset_end,
+                                            value_to_replace_with: to_use.clone(),
+                                        }
+                                    );
+                                to_use
+                            } else {
+                                &row.value_fields[kv_idx].value.value
+                            };
+                            match to_push.parse::<f64>() {
                                 Ok(i) => {
                                     v.v.push(i);
                                 }
@@ -4251,7 +4509,7 @@ fn insert_structured_data(
                                             table_name: sd.target_table_name.clone(),
                                             column_name: col.column_name.as_str().to_string(),
                                             expected_type: col.data.column_type(),
-                                            column_value: row.value_fields[kv_idx].value.clone(),
+                                            column_value: row.value_fields[kv_idx].value.value.clone(),
                                         },
                                     );
                                 }
@@ -4265,7 +4523,22 @@ fn insert_structured_data(
                             assert!(res, "Default value is assumed to exist here");
                         } else {
                             let kv_idx = *kv_idx.unwrap();
-                            match row.value_fields[kv_idx].value.parse::<bool>() {
+                            let to_push =
+                                if let Some(row_replacement) = &row_replacement {
+                                    let to_use = row_replacement.values.get(col.column_name.as_str()).unwrap();
+                                    res.source_replacements.push(
+                                        ScheduledValueReplacementInSource {
+                                            source_file_idx: sd.source_file_id,
+                                            offset_start: row.value_fields[kv_idx].value.offset_start,
+                                            offset_end: row.value_fields[kv_idx].value.offset_end,
+                                            value_to_replace_with: to_use.clone(),
+                                        }
+                                    );
+                                to_use
+                            } else {
+                                &row.value_fields[kv_idx].value.value
+                            };
+                            match to_push.parse::<bool>() {
                                 Ok(i) => {
                                     v.v.push(i);
                                 }
@@ -4275,7 +4548,7 @@ fn insert_structured_data(
                                             table_name: sd.target_table_name.clone(),
                                             column_name: col.column_name.as_str().to_string(),
                                             expected_type: col.data.column_type(),
-                                            column_value: row.value_fields[kv_idx].value.clone(),
+                                            column_value: row.value_fields[kv_idx].value.value.clone(),
                                         },
                                     );
                                 }
@@ -4414,6 +4687,7 @@ fn maybe_insert_lua_data(
                         target_table_name: t.name.as_str().to_string(),
                         is_exclusive: false,
                         map: vec![],
+                        source_file_id: -1,
                     };
                     for v in values_array.sequence_values::<mlua::Value>() {
                         let v = v.map_err(|e| DatabaseValidationError::LuaDataTableError {
@@ -4461,7 +4735,11 @@ fn maybe_insert_lua_data(
                                 let final_v = lua_value_to_string(&the_val);
                                 fields.value_fields.push(TableDataStructField {
                                     key: row_key,
-                                    value: final_v,
+                                    value: ValueWithPos {
+                                        value: final_v,
+                                        offset_start: 0,
+                                        offset_end: 0,
+                                    },
                                 });
                             }
 
@@ -4636,7 +4914,7 @@ fn insert_extra_data_structured(
                             .map(|i| ContextualInsertStackItem {
                                 table: res.tables[parent_table_idx].name.as_str().to_string(),
                                 key: fkey_col.column_name.as_str().to_string(),
-                                value: row.value_fields[*i].value.clone(),
+                                value: row.value_fields[*i].value.value.clone(),
                             })
                             .collect::<Vec<_>>();
                     }
@@ -4670,7 +4948,7 @@ fn insert_extra_data_structured(
                                     .column_name
                                     .as_str()
                                     .to_string(),
-                                value: row.value_fields[*i].value.clone(),
+                                value: row.value_fields[*i].value.value.clone(),
                             })
                             .collect::<Vec<_>>();
                     }
@@ -4694,7 +4972,7 @@ fn insert_extra_data_structured(
                                 let new_item = ContextualInsertStackItem {
                                     table: parent_table.as_str().to_string(),
                                     key: col.column_name.as_str().to_string(),
-                                    value: v.value.clone(),
+                                    value: v.value.value.clone(),
                                 };
                                 this_row_primary_key_values.insert(0, new_item);
                             }
@@ -4721,17 +4999,23 @@ fn insert_extra_data_structured(
 
                 for i in extra.map.iter() {
                     let mut data_slices = Vec::with_capacity(extra.map.len());
-                    let mut row_values = Vec::with_capacity(i.value_fields.len() + 1);
+                    let mut replacement_maps: Vec<Vec<(i32, usize, usize)>> = Vec::with_capacity(extra.map.len());
+                    let row_target_size = i.value_fields.len() + this_row_primary_key_values.len();
+                    let mut replacement_map: Vec<(i32, usize, usize)> = Vec::with_capacity(row_target_size);
+                    let mut row_values = Vec::with_capacity(row_target_size);
                     let mut target_fields = Vec::new();
                     for pkv in &this_row_primary_key_values {
                         target_fields.push(pkv.key.as_str());
                         row_values.push(pkv.value.as_str());
+                        replacement_map.push((-1, 0, 0));
                     }
                     for f in i.value_fields.iter() {
                         target_fields.push(f.key.as_str());
-                        row_values.push(f.value.as_str());
+                        row_values.push(f.value.value.as_str());
+                        replacement_map.push((ds.source_file_id, f.value.offset_start, f.value.offset_end));
                     }
                     data_slices.push(row_values);
+                    replacement_maps.push(replacement_map);
 
                     // eprintln!("stack   {:?}", this_row_primary_key_values);
                     // eprintln!("tfields {:?}", target_fields);
@@ -4742,6 +5026,7 @@ fn insert_extra_data_structured(
                         extra.target_table_name.as_str(),
                         target_fields.as_slice(),
                         &data_slices,
+                        &replacement_maps,
                         false,
                     )?;
                 }
@@ -4826,7 +5111,7 @@ fn insert_extra_data_dataframes(
                             .column_name
                             .as_str()
                             .to_string(),
-                        value: row.value_fields[*i].clone(),
+                        value: row.value_fields[*i].value.clone(),
                     })
                     .collect::<Vec<_>>();
             } else {
@@ -4851,7 +5136,7 @@ fn insert_extra_data_dataframes(
                             .column_name
                             .as_str()
                             .to_string(),
-                        value: row.value_fields[*i - this_row_primary_key_values.len()].clone(),
+                        value: row.value_fields[*i - this_row_primary_key_values.len()].value.clone(),
                     })
                     .collect::<Vec<_>>();
             }
@@ -4888,7 +5173,7 @@ fn insert_extra_data_dataframes(
                             let new_item = ContextualInsertStackItem {
                                 table: parent_table.as_str().to_string(),
                                 key: col.column_name.as_str().to_string(),
-                                value: ds.data[parent_row_idx].value_fields[cidx].clone(),
+                                value: ds.data[parent_row_idx].value_fields[cidx].value.clone(),
                             };
                             this_row_primary_key_values.insert(0, new_item);
                         }
@@ -5063,15 +5348,21 @@ fn insert_extra_data_dataframes(
                     // by a certain order?
 
                     let mut data_slices = Vec::with_capacity(extra.data.len());
+                    let mut replacement_maps: Vec<Vec<(i32, usize, usize)>> = Vec::with_capacity(extra.data.len());
                     for i in extra.data.iter() {
-                        let mut row_values = Vec::with_capacity(i.value_fields.len() + 1);
+                        let target_row_size = i.value_fields.len() + this_row_primary_key_values.len();
+                        let mut row_values: Vec<&str> = Vec::with_capacity(target_row_size);
+                        let mut replacement_map: Vec<(i32, usize, usize)> = Vec::with_capacity(target_row_size);
                         for pkv in &this_row_primary_key_values {
                             row_values.push(pkv.value.as_str());
+                            replacement_map.push((-1, 0, 0));
                         }
                         for f in i.value_fields.iter() {
-                            row_values.push(f.as_str());
+                            row_values.push(f.value.as_str());
+                            replacement_map.push((ds.source_file_id, f.offset_start, f.offset_end));
                         }
                         data_slices.push(row_values);
+                        replacement_maps.push(replacement_map);
                     }
                     // eprintln!("tfields {:?}", target_fields);
                     // eprintln!("slices  {:?}", data_slices);
@@ -5082,6 +5373,7 @@ fn insert_extra_data_dataframes(
                         extra.target_table_name.as_str(),
                         target_fields.as_slice(),
                         &data_slices,
+                        &replacement_maps,
                         false,
                     )?;
                 }
@@ -5099,6 +5391,7 @@ fn insert_table_data(
     target_table_name: &str,
     target_table_fields: &[&str],
     input_data: &[Vec<&str>],
+    source_replacement_map: &[Vec<(i32, usize, usize)>],
     is_exclusive: bool,
 ) -> Result<(), DatabaseValidationError> {
     let target_tbl_dbi = DBIdentifier::new(target_table_name)?;
@@ -5127,7 +5420,48 @@ fn insert_table_data(
         );
     }
 
-    res.tables[target_table_idx].try_insert_dataframe(target_table_fields, input_data)?;
+    let mut source_replacements: Vec<ScheduledValueReplacementInSource> = Vec::new();
+    let mut replacement_data: Vec<Vec<&str>> = Vec::new();
+    let mut input_data_replaced: &[Vec<&str>] = input_data;
+    if let Some(replacements) = res.table_replacements.get(&target_table_idx) {
+        replacement_data.reserve_exact(input_data.len());
+        let pkey_column = res.tables[target_table_idx].primary_key_column().unwrap();
+        assert_eq!(pkey_column.key_type, KeyType::Primary);
+
+        if let Some((pkey_idx, _)) = target_table_fields.iter().enumerate().find(|(_, i)| *i == &pkey_column.column_name.as_str()) {
+            for row_idx in 0..input_data.len() {
+                let original_row = &input_data[row_idx];
+                let mut new_row: Vec<&str> = Vec::with_capacity(original_row.len());
+                if let Some(replacement) = replacements.get(original_row[pkey_idx]) {
+                    let mut use_count = replacement.use_count.borrow_mut();
+                    *use_count += 1;
+                    for (f_idx, field) in target_table_fields.iter().enumerate() {
+                        if let Some(f_repl) = replacement.values.get(*field) {
+                            let (source_file_idx, offset_start, offset_end) = source_replacement_map[row_idx][f_idx];
+                            assert!(source_file_idx >= 0, "Unknown source id, should never be reached");
+                            source_replacements.push(ScheduledValueReplacementInSource {
+                                source_file_idx, offset_start, offset_end, value_to_replace_with: f_repl.clone(),
+                            });
+                            new_row.push(&f_repl);
+                        } else {
+                            new_row.push(original_row[f_idx])
+                        }
+                    }
+                } else {
+                    for (f_idx, _) in target_table_fields.iter().enumerate() {
+                        new_row.push(original_row[f_idx])
+                    }
+                }
+
+                replacement_data.push(new_row);
+            }
+        }
+
+        input_data_replaced = &replacement_data;
+    }
+
+    res.tables[target_table_idx].try_insert_dataframe(target_table_fields, input_data_replaced)?;
+    res.source_replacements.extend(source_replacements);
 
     if is_exclusive {
         res.tables[target_table_idx].exclusive_lock = true;

@@ -11,10 +11,12 @@ in pkgs.mkShell {
     pkgs.luajit
     pkgs.binutils
     pkgs.clippy
+    pkgs.rust-analyzer
 
     pkgs.ocaml
     pkgs.ocamlPackages.findlib
     pkgs.ocamlPackages.core
+    pkgs.ocamlPackages.dune_2
     pkgs.ocamlPackages.utop
     pkgs.ocamlPackages.ocaml_sqlite3
     pkgs.ocamlPackages.data-encoding

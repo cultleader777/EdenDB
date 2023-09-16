@@ -45,6 +45,7 @@ DATA servers(hostname, region) {
         path: "test".to_string(),
         contents: Some(input.to_string()),
         source_dir: None,
+        line_comments: Vec::new(),
     }];
     let parsed = crate::db_parser::parse_sources(inp);
     assert!(parsed.is_ok());
@@ -181,6 +182,7 @@ DATA regions {
         path: "test".to_string(),
         contents: Some(input.to_string()),
         source_dir: None,
+        line_comments: Vec::new(),
     }];
     let parsed = crate::db_parser::parse_sources(inp);
     assert!(parsed.is_ok());

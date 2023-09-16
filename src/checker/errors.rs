@@ -552,6 +552,41 @@ pub enum DatabaseValidationError {
         expected_type: DBType,
         error: String,
     },
+    ReplacementsTargetTableDoesntExist {
+        table: String,
+    },
+    ReplacementsTargetTableDoesntHavePrimaryKey {
+        table: String,
+    },
+    ReplacementsIsSupportedOnlyBySinglePrimaryKey {
+        table: String,
+    },
+    ReplacementCannotBeProvidedForGeneratedColumn {
+        table: String,
+        replacement_primary_key: String,
+        generated_column: String,
+    },
+    ReplacementsDuplicatePrimaryKeyDetected {
+        table: String,
+        replacement_primary_key: String,
+    },
+    ReplacementsColumnNotFound {
+        table: String,
+        replacement_primary_key: String,
+        column_not_found: String,
+        available_columns: Vec<String>,
+    },
+    ReplacementNeverUsed {
+        table: String,
+        replacement_primary_key: String,
+        replacement_uses: usize,
+        replacement_columns: Vec<String>,
+        replacement_values: Vec<String>,
+    },
+    ReplacementOverLuaGeneratedValuesIsNotSupported {
+        table: String,
+        replacement_primary_key: String,
+    },
 }
 
 impl std::fmt::Display for DatabaseValidationError {

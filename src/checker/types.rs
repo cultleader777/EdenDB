@@ -316,7 +316,9 @@ impl DataTable {
                     }
                 }
                 None => {
-                    if !table_column.data.has_default_value() {
+                    if table_column.data.has_default_value() {
+                        table_column.data.push_default_values(consistent_df.len());
+                    } else {
                         if table_column.generate_expression.is_some() {
                             // push dummy empty data to be computed later
                             table_column.data.push_dummy_values(consistent_df.len());
@@ -328,8 +330,6 @@ impl DataTable {
                                 },
                             );
                         }
-                    } else {
-                        table_column.data.push_default_values(consistent_df.len());
                     }
                 }
             }

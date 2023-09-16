@@ -25,6 +25,7 @@ fn main() {
             path: i.clone(),
             contents: None,
             source_dir: None,
+            line_comments: Vec::new(),
         })
         .collect();
 
@@ -33,7 +34,20 @@ fn main() {
         eprint!("{e}");
         std::process::exit(1);
     }
-    let sources = sources.unwrap();
+    let mut sources = sources.unwrap();
+    if let Some(replacements_file) = &args.replacements_file {
+        match std::fs::read(&replacements_file) {
+            Ok(file) => {
+                let replacements: db_parser::Replacements = serde_json::from_slice(&file).expect("Cannot parse replacements file");
+                sources.set_value_replacements(replacements);
+            }
+            Err(e) => {
+                eprintln!("Cannot read replacements json file at {}: {}", replacements_file, e);
+                std::process::exit(1);
+            }
+        }
+    }
+
     let sqlite_needed = args.sqlite_output_file.is_some();
 
     let data = AllData::new_with_flags(sources, sqlite_needed);
