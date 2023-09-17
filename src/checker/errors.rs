@@ -558,7 +558,7 @@ pub enum DatabaseValidationError {
     ReplacementsTargetTableDoesntHavePrimaryKey {
         table: String,
     },
-    ReplacementsIsSupportedOnlyBySinglePrimaryKey {
+    ReplacementsIsSupportedOnlyByPrimaryKey {
         table: String,
     },
     ReplacementCannotBeProvidedForGeneratedColumn {
@@ -569,6 +569,18 @@ pub enum DatabaseValidationError {
     ReplacementsDuplicatePrimaryKeyDetected {
         table: String,
         replacement_primary_key: String,
+    },
+    ReplacementsUnexpectedKeySegmentCount {
+        table: String,
+        replacement_primary_key: String,
+        segments: Vec<String>,
+        expected_segments: usize,
+        segment_separator: String,
+    },
+    ReplacementsCannotReplaceParentPrimaryKey {
+        table: String,
+        replacement_primary_key: String,
+        parent_primary_key_column: String,
     },
     ReplacementsColumnNotFound {
         table: String,

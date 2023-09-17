@@ -349,6 +349,17 @@ impl DataTable {
             .collect()
     }
 
+    pub fn primary_keys_with_parents(&self) -> Vec<usize> {
+        self.columns
+            .iter()
+            .enumerate()
+            .filter_map(|i| match i.1.key_type {
+                KeyType::Primary | KeyType::ParentPrimary { .. } | KeyType::ChildPrimary { .. } => Some(i.0),
+                _ => None,
+            })
+            .collect()
+    }
+
     pub fn determine_nested_insertion_mode(&self, child_table: &DataTable) -> NestedInsertionMode {
         let main_table_parent_key = KeyType::ParentPrimary {
             parent_table: self.name.clone(),

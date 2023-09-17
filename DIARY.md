@@ -335,3 +335,8 @@ wait a sec, I can just to all the processing just readd the comments?
 almost everything works
 DONE: fix struct replacements
 DONE: write tests for errors
+
+* 2023-09-17
+
+DONE: child primary keys
+DONE: if data defined with with statement parent primary keys cannot be changed

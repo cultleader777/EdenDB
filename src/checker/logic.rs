@@ -496,10 +496,11 @@ fn check_replacements(
 
         if let Some(pkey) = table.primary_key_column() {
             match &pkey.key_type {
+                KeyType::ChildPrimary { .. } => {} // ok
                 KeyType::Primary => {} // ok
                 _ => {
                     // now support only this easy case
-                    return Err(DatabaseValidationError::ReplacementsIsSupportedOnlyBySinglePrimaryKey {
+                    return Err(DatabaseValidationError::ReplacementsIsSupportedOnlyByPrimaryKey {
                         table: table_name.as_str().to_string(),
                     });
                 }
@@ -510,6 +511,7 @@ fn check_replacements(
             });
         }
 
+        let primary_keys_count = table.primary_keys_with_parents().len();
         let mut prim_key_map: HashSet<&String> = HashSet::new();
 
         // duplicate keys could be passed
@@ -518,6 +520,16 @@ fn check_replacements(
                 return Err(DatabaseValidationError::ReplacementsDuplicatePrimaryKeyDetected {
                     table: table_name.as_str().to_string(),
                     replacement_primary_key: row.primary_key.clone(),
+                });
+            }
+
+            if row.primary_key.split("=>").count() != primary_keys_count {
+                return Err(DatabaseValidationError::ReplacementsUnexpectedKeySegmentCount {
+                    table: table_name.as_str().to_string(),
+                    replacement_primary_key: row.primary_key.clone(),
+                    segments: row.primary_key.split("=>").map(|i| i.to_string()).collect(),
+                    expected_segments: primary_keys_count,
+                    segment_separator: "=>".to_string(),
                 });
             }
 
@@ -530,6 +542,16 @@ fn check_replacements(
                             table: table_name.as_str().to_string(),
                             replacement_primary_key: row.primary_key.clone(),
                             generated_column: target_column.as_str().to_string(),
+                        });
+                    }
+
+                    // disallow replacements of parent primary keys for possibly nested
+                    // keys because data would be no longer part of same parent structure
+                    if matches!(found.key_type, KeyType::ParentPrimary { .. }) {
+                        return Err(DatabaseValidationError::ReplacementsCannotReplaceParentPrimaryKey {
+                            table: table_name.as_str().to_string(),
+                            replacement_primary_key: row.primary_key.clone(),
+                            parent_primary_key_column: found.column_name.as_str().to_string(),
                         });
                     }
                 } else {
@@ -4332,6 +4354,7 @@ fn insert_structured_data(
     }
 
     let replacements = res.table_replacements.get(&tbl_idx);
+    let prim_key_idxs = res.tables[tbl_idx].primary_keys_with_parents();
 
     for row in &sd.map {
         let mut uniq_fields = HashMap::with_capacity(row.value_fields.len());
@@ -4376,29 +4399,32 @@ fn insert_structured_data(
         }
 
         let mut row_replacement = None;
+        if let Some(replacements) = replacements {
+            let mut composite_key: Vec<&str> = Vec::new();
+            for prim_idx in &prim_key_idxs {
+                if let Some(sc) = uniq_fields.get(&res.tables[tbl_idx].columns[*prim_idx].column_name) {
+                    composite_key.push(&row.value_fields[*sc].value.value);
+                }
+            }
+            let composite_key = composite_key.join("=>");
+            if let Some(replacement) = replacements.get(&composite_key) {
+                // can only come from lua
+                if sd.source_file_id < 0 {
+                    return Err(DatabaseValidationError::ReplacementOverLuaGeneratedValuesIsNotSupported {
+                        table: res.tables[tbl_idx].name.as_str().to_string(),
+                        replacement_primary_key: composite_key,
+                    });
+                }
+
+                *replacement.use_count.borrow_mut() += 1;
+                row_replacement = Some(replacement);
+            }
+        }
+
         for col in &mut res.tables[tbl_idx].columns {
             let is_required = col.is_required();
             let kv_idx = uniq_fields.get(&col.column_name);
 
-            if let Some(replacements) = replacements {
-                if let Some(kv_idx) = kv_idx {
-                    if col.key_type == KeyType::Primary {
-                        let value = &row.value_fields[*kv_idx].value;
-                        if let Some(replacement) = replacements.get(&value.value) {
-                            // can only come from lua
-                            if sd.source_file_id < 0 {
-                                return Err(DatabaseValidationError::ReplacementOverLuaGeneratedValuesIsNotSupported {
-                                    table: res.tables[tbl_idx].name.as_str().to_string(),
-                                    replacement_primary_key: value.value.clone(),
-                                });
-                            }
-
-                            *replacement.use_count.borrow_mut() += 1;
-                            row_replacement = Some(replacement);
-                        }
-                    }
-                }
-            }
             // primary key is always first column, we can rely on that
             if col.generate_expression.is_some() {
                 if kv_idx.is_some() {
@@ -4422,19 +4448,22 @@ fn insert_structured_data(
                             let kv_idx = *kv_idx.unwrap();
                             let to_push =
                                 if let Some(row_replacement) = &row_replacement {
-                                    let to_use = row_replacement.values.get(col.column_name.as_str()).unwrap();
-                                    res.source_replacements.push(
-                                        ScheduledValueReplacementInSource {
-                                            source_file_idx: sd.source_file_id,
-                                            offset_start: row.value_fields[kv_idx].value.offset_start,
-                                            offset_end: row.value_fields[kv_idx].value.offset_end,
-                                            value_to_replace_with: to_use.clone(),
-                                        }
-                                    );
-                                to_use
-                            } else {
-                                &row.value_fields[kv_idx].value.value
-                            };
+                                    if let Some(col_replacement) = row_replacement.values.get(col.column_name.as_str()) {
+                                        res.source_replacements.push(
+                                            ScheduledValueReplacementInSource {
+                                                source_file_idx: sd.source_file_id,
+                                                offset_start: row.value_fields[kv_idx].value.offset_start,
+                                                offset_end: row.value_fields[kv_idx].value.offset_end,
+                                                value_to_replace_with: col_replacement.clone(),
+                                            }
+                                        );
+                                        col_replacement
+                                    } else {
+                                        &row.value_fields[kv_idx].value.value
+                                    }
+                                } else {
+                                    &row.value_fields[kv_idx].value.value
+                                };
                             v.v.push(to_push.clone());
                         }
                     }
@@ -5426,13 +5455,29 @@ fn insert_table_data(
     if let Some(replacements) = res.table_replacements.get(&target_table_idx) {
         replacement_data.reserve_exact(input_data.len());
         let pkey_column = res.tables[target_table_idx].primary_key_column().unwrap();
-        assert_eq!(pkey_column.key_type, KeyType::Primary);
+        assert!(matches!(pkey_column.key_type, KeyType::Primary | KeyType::ChildPrimary { .. }));
 
-        if let Some((pkey_idx, _)) = target_table_fields.iter().enumerate().find(|(_, i)| *i == &pkey_column.column_name.as_str()) {
+        let key_idxs = res.tables[target_table_idx].primary_keys_with_parents();
+        let mut dataframe_key_order: Vec<usize> = Vec::with_capacity(key_idxs.len());
+        for key_idx in key_idxs {
+            for (t_idx, tval) in target_table_fields.iter().enumerate() {
+                if *tval == res.tables[target_table_idx].columns[key_idx].column_name.as_str() {
+                    dataframe_key_order.push(t_idx);
+                    break;
+                }
+            }
+        }
+
+        if !dataframe_key_order.is_empty() {
             for row_idx in 0..input_data.len() {
                 let original_row = &input_data[row_idx];
                 let mut new_row: Vec<&str> = Vec::with_capacity(original_row.len());
-                if let Some(replacement) = replacements.get(original_row[pkey_idx]) {
+                let mut composite_key: Vec<&str> = Vec::new();
+                for ord_idx in &dataframe_key_order {
+                    composite_key.push(original_row[*ord_idx]);
+                }
+                let composite_key = composite_key.join("=>");
+                if let Some(replacement) = replacements.get(&composite_key) {
                     let mut use_count = replacement.use_count.borrow_mut();
                     *use_count += 1;
                     for (f_idx, field) in target_table_fields.iter().enumerate() {

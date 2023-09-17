@@ -158,82 +158,6 @@ fn test_source_file_replacements_no_primary_key() {
 }
 
 #[test]
-fn test_source_file_replacements_only_by_primary_key() {
-    let tmp_dir = random_test_dir();
-
-    std::fs::write(
-        tmp_dir.join("root.edl"),
-        r#"
-      TABLE test_table {
-        id INT PRIMARY KEY,
-        v1 TEXT,
-        v2 FLOAT,
-        v3 BOOL,
-      }
-
-      TABLE other_table {
-        child_id TEXT PRIMARY KEY CHILD OF test_table,
-      }
-
-      DATA test_table(id, v1, v2, v3) {
-        1, " henlo ", 3.14, true;// salookie
-        2, hey, 321, false;
-      }
-
-      DATA STRUCT test_table [ // dookie
-        {
-          id: 3,
-          v1: " ho ",
-          v2: 1.2,
-          v3: true,
-        },
-        {
-          id: 4,
-          v1: here,
-          v2: 1.3,
-          v3: false,
-        },
-      ]
-"#
-        .replace("TMP_DIR", tmp_dir.to_str().unwrap()),
-    )
-    .unwrap();
-
-    let replacements = r#"
-{
-  "other_table": [
-    {
-      "primary_key": "1",
-      "replacements": {
-        "id": "5",
-        "v1": " holo ",
-        "v2": "3.41",
-        "v3": "false"
-      }
-    }
-  ]
-}
-"#;
-
-    let paths = [
-      "root.edl",
-    ]
-        .iter()
-        .map(|i| tmp_dir.join(i).to_str().unwrap().to_string())
-        .collect::<Vec<_>>();
-
-    assert_eq!(
-        assert_compiles_data_paths_error_source_replacements(
-            paths.as_slice(),
-            replacements,
-        ),
-        DatabaseValidationError::ReplacementsIsSupportedOnlyBySinglePrimaryKey {
-            table: "other_table".to_string(),
-        },
-    )
-}
-
-#[test]
 fn test_source_file_replacement_cannot_be_for_generated_column() {
     let tmp_dir = random_test_dir();
 
@@ -633,6 +557,85 @@ INCLUDE LUA {
 }
 
 #[test]
+fn test_source_file_replacement_for_parent_keys_not_allowed() {
+    let tmp_dir = random_test_dir();
+
+    std::fs::write(
+        tmp_dir.join("root.edl"),
+        r#"
+      TABLE test_table {
+        parent_id INT PRIMARY KEY,
+      }
+
+      TABLE child_table {
+        child_id TEXT PRIMARY KEY CHILD OF test_table,
+        v1 TEXT,
+        v2 FLOAT,
+        v3 BOOL,
+      }
+
+      DATA test_table(id) {
+        // replacement of parent key in child
+        // would break this source
+        1 WITH child_table(child_id, v1, v2, v3) {
+          cheld, " henlo ", 3.14, true
+        };
+        2;
+      }
+
+      DATA STRUCT test_table [ // dookie
+        {
+          parent_id: 3,
+          WITH child_table {
+            child_id: other_child,
+            v1: " ho ",
+            v2: 1.2,
+            v3: true,
+          }
+        },
+        {
+          parent_id: 4,
+        },
+      ]
+"#
+        .replace("TMP_DIR", tmp_dir.to_str().unwrap()),
+    )
+    .unwrap();
+
+    let replacements = r#"
+{
+  "child_table": [
+    {
+      "primary_key": "1=>cheld",
+      "replacements": {
+        "parent_id": "123"
+      }
+    }
+  ]
+}
+"#;
+
+    let paths = [
+      "root.edl",
+    ]
+        .iter()
+        .map(|i| tmp_dir.join(i).to_str().unwrap().to_string())
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        assert_compiles_data_paths_error_source_replacements(
+            paths.as_slice(),
+            replacements,
+        ),
+        DatabaseValidationError::ReplacementsCannotReplaceParentPrimaryKey {
+            table: "child_table".to_string(),
+            replacement_primary_key: "1=>cheld".to_string(),
+            parent_primary_key_column: "parent_id".to_string(),
+        },
+    )
+}
+
+#[test]
 fn test_source_file_replacements() {
     let tmp_dir = random_test_dir();
 
@@ -763,6 +766,146 @@ fn test_source_file_replacements() {
           v1: "@#!$#))*",
           v2: 1.7,
           v3: true,
+        },
+      ]
+"#,
+        output
+    );
+
+    // still compiles data and syntax is valid post replacements
+    assert_compiles_data_paths(
+        paths.as_slice(),
+        output_table,
+    );
+}
+
+#[test]
+fn test_source_file_child_replacements() {
+    let tmp_dir = random_test_dir();
+
+    std::fs::write(
+        tmp_dir.join("root.edl"),
+        r#"
+      TABLE test_table {
+        id INT PRIMARY KEY,
+      }
+
+      TABLE child_table {
+        child_id TEXT PRIMARY KEY CHILD OF test_table,
+        v1 TEXT,
+        v2 FLOAT,
+        v3 BOOL,
+      }
+
+      DATA test_table(id) {
+        1 WITH child_table(child_id, v1, v2, v3) {
+          cheld, " henlo ", 3.14, true
+        };
+        2;
+      }
+
+      DATA STRUCT test_table [ // dookie
+        {
+          id: 3,
+          WITH child_table {
+            child_id: other_child,
+            v1: " ho ",
+            v2: 1.2,
+            v3: true,
+          }
+        },
+        {
+          id: 4,
+        },
+      ]
+"#
+        .replace("TMP_DIR", tmp_dir.to_str().unwrap()),
+    )
+    .unwrap();
+
+    let replacements = r#"
+{
+  "child_table": [
+    {
+      "primary_key": "1=>cheld",
+      "replacements": {
+        "v1": " holo ",
+        "v2": "3.41",
+        "v3": "false"
+      }
+    },
+    {
+      "primary_key": "3=>other_child",
+      "replacements": {
+        "v1": " hey!@#))* ",
+        "v2": "4.21",
+        "v3": "true"
+      }
+    }
+  ]
+}
+"#;
+
+    let paths = [
+      "root.edl",
+    ]
+        .iter()
+        .map(|i| tmp_dir.join(i).to_str().unwrap().to_string())
+        .collect::<Vec<_>>();
+
+    let output_table =
+        json!({
+            "test_table": [
+                {"id": 1.0},
+                {"id": 2.0},
+                {"id": 3.0},
+                {"id": 4.0},
+            ],
+            "child_table": [
+                {"id": 1.0, "child_id": "cheld", "v1": " holo ", "v2": 3.41, "v3": false},
+                {"id": 3.0, "child_id": "other_child", "v1": " hey!@#))* ", "v2": 4.21, "v3": true},
+            ],
+        });
+
+    assert_compiles_data_with_source_replacements(
+        paths.as_slice(),
+        replacements,
+        &output_table,
+    );
+
+    let output = std::fs::read_to_string(tmp_dir.join("root.edl")).unwrap();
+    assert_eq!(
+        r#"
+      TABLE test_table {
+        id INT PRIMARY KEY,
+      }
+
+      TABLE child_table {
+        child_id TEXT PRIMARY KEY CHILD OF test_table,
+        v1 TEXT,
+        v2 FLOAT,
+        v3 BOOL,
+      }
+
+      DATA test_table(id) {
+        1 WITH child_table(child_id, v1, v2, v3) {
+          cheld, " holo ", 3.41, false
+        };
+        2;
+      }
+
+      DATA STRUCT test_table [ // dookie
+        {
+          id: 3,
+          WITH child_table {
+            child_id: other_child,
+            v1: " hey!@#))* ",
+            v2: 4.21,
+            v3: true,
+          }
+        },
+        {
+          id: 4,
         },
       ]
 "#,
