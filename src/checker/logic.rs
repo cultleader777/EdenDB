@@ -1872,16 +1872,16 @@ fn compute_lua_vector_value<'lua, T: Clone + std::str::FromStr>(
 }
 
 fn ensure_child_foreign_keys_are_restricted(res: &AllData) -> Result<(), DatabaseValidationError> {
-    let valid_snake_case = Regex::new("^[a-z0-9_-]+$").unwrap();
+    let valid_fkey_case = Regex::new("^[a-zA-Z0-9_-]+$").unwrap();
     for table in &res.tables {
         for column in &table.columns {
             if column.is_snake_case_restricted {
                 match &column.data {
                     ColumnVector::Strings(sv) => {
                         for i in &sv.v {
-                            if !valid_snake_case.is_match(i.as_str()) {
+                            if !valid_fkey_case.is_match(i.as_str()) {
                                 return Err(
-                                    DatabaseValidationError::ForeignChildKeyTableStringMustBeSnakeCase {
+                                    DatabaseValidationError::ForeignChildKeyTableStringMustBeAlphanumeric {
                                         referred_table: table.name.as_str().to_string(),
                                         offending_column: column.column_name.as_str().to_string(),
                                         offending_value: i.clone(),

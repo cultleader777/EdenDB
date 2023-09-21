@@ -84,7 +84,7 @@ pub enum DatabaseValidationError {
         offending_column: String,
         offending_value: i64,
     },
-    ForeignChildKeyTableStringMustBeSnakeCase {
+    ForeignChildKeyTableStringMustBeAlphanumeric {
         referred_table: String,
         offending_column: String,
         offending_value: String,

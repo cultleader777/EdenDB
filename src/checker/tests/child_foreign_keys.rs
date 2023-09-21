@@ -158,9 +158,9 @@ DATA existant_parent {
 #[test]
 fn test_child_foreign_key_parent_has_non_snake_case_segment() {
     assert_test_validaton_exception(
-        DatabaseValidationError::ForeignChildKeyTableStringMustBeSnakeCase {
+        DatabaseValidationError::ForeignChildKeyTableStringMustBeAlphanumeric {
             offending_column: "some_key".to_string(),
-            offending_value: "NonSnakeCase".to_string(),
+            offending_value: "NonAlphanumeric@".to_string(),
             referred_table: "existant_parent".to_string(),
         },
         r#"
@@ -177,7 +177,7 @@ TABLE good_ref {
 }
 
 DATA existant_parent {
-    NonSnakeCase
+    NonAlphanumeric@
 }
         "#,
     );
@@ -186,9 +186,9 @@ DATA existant_parent {
 #[test]
 fn test_child_foreign_key_child_has_non_snake_case_segment() {
     assert_test_validaton_exception(
-        DatabaseValidationError::ForeignChildKeyTableStringMustBeSnakeCase {
+        DatabaseValidationError::ForeignChildKeyTableStringMustBeAlphanumeric {
             offending_column: "some_child_key".to_string(),
-            offending_value: "NonSnakeCase".to_string(),
+            offending_value: "NonAlphanumeric@".to_string(),
             referred_table: "existant_child".to_string(),
         },
         r#"
@@ -206,7 +206,7 @@ TABLE good_ref {
 
 DATA existant_parent {
     snake_case WITH existant_child {
-        NonSnakeCase
+        NonAlphanumeric@
     }
 }
         "#,
