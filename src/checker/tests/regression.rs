@@ -4,6 +4,12 @@ use serde_json::json;
 #[cfg(test)]
 use super::common::assert_compiles_data;
 
+#[cfg(test)]
+use super::common::assert_test_validaton_exception;
+
+#[cfg(test)]
+use crate::checker::errors::DatabaseValidationError;
+
 #[test]
 fn test_regression_1() {
     assert_compiles_data(
@@ -403,5 +409,26 @@ DATA STRUCT application [
                 {"http_method_name": "PUT"},
             ],
         }),
+    );
+}
+
+#[test]
+fn test_regression_default_and_detached_default_defined() {
+    assert_test_validaton_exception(
+        DatabaseValidationError::DetachedDefaultDefinedForColumnAlreadyHavingDefaultValue {
+            table: "cholo".to_string(),
+            column: "id".to_string(),
+            hardcoded_default_value: "123".to_string(),
+            detached_default_value: "321".to_string(),
+        },
+        r#"
+TABLE cholo {
+    id INT DEFAULT 123,
+}
+
+DEFAULTS {
+    cholo.id 321,
+}
+        "#,
     );
 }

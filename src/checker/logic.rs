@@ -3457,6 +3457,16 @@ fn process_detached_defaults(
                     );
                 }
 
+                if col.data.has_default_value() {
+                    return Err(
+                        DatabaseValidationError::DetachedDefaultDefinedForColumnAlreadyHavingDefaultValue {
+                            table: dd.table.clone(),
+                            column: dd.column.clone(),
+                            hardcoded_default_value: col.data.default_value().unwrap(),
+                            detached_default_value: dd.value.clone(),
+                        },
+                    );
+                }
                 // default value must not already be set now
                 assert!(!col.data.has_default_value());
 

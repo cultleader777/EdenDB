@@ -525,6 +525,12 @@ pub enum DatabaseValidationError {
         column_name: String,
         column_value: String,
     },
+    DetachedDefaultDefinedForColumnAlreadyHavingDefaultValue {
+        table: String,
+        column: String,
+        hardcoded_default_value: String,
+        detached_default_value: String,
+    },
     DetachedDefaultUndefined {
         table: String,
         column: String,

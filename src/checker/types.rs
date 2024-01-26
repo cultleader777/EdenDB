@@ -659,6 +659,15 @@ impl ColumnVector {
             ColumnVector::Bools(_) => DBType::Bool,
         }
     }
+
+    pub fn default_value(&self) -> Option<String> {
+        match self {
+            ColumnVector::Strings(v) => v.default_value.clone(),
+            ColumnVector::Ints(v) => v.default_value.map(|i| i.to_string()),
+            ColumnVector::Floats(v) => v.default_value.map(|i| i.to_string()),
+            ColumnVector::Bools(v) => v.default_value.map(|i| i.to_string()),
+        }
+    }
 }
 
 impl<'a> ConsistentStringDataframe<'a> {
