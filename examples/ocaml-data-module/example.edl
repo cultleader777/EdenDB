@@ -1,3 +1,5 @@
+DATA MODULE OCAML "ocaml-module"
+
 // our schema
 TABLE server {
   hostname TEXT PRIMARY KEY,
@@ -43,10 +45,6 @@ DATA STRUCT server [
     }]
   }
 ]
-
-PROOF "just check that no disks with name 'doofus' exists, works" NONE EXIST OF disks DATALOG {
-  OUTPUT(Offender) :- t_disks__disk_id("doofus", Offender).
-}
 
 PROOF "no disks exist less than 10 gigabytes" NONE EXIST OF disks {
   SELECT rowid

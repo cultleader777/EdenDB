@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use crate::checker::{logic::AllData, types::SerializationVector};
 
 pub mod ocaml;
+pub mod ocaml_data_module;
 pub mod rust;
 
 pub struct CodegenOutputFile {

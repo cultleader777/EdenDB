@@ -1,0 +1,11 @@
+(lang dune 2.1)
+
+(name data-module)
+
+(authors "Nobody")
+(maintainers "Cares")
+(license LICENSE)
+
+(package
+ (name data-module)
+ (depends ocaml dune))

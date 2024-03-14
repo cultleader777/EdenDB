@@ -446,7 +446,7 @@ DATA STRUCT cholo {
 #[test]
 fn test_explicit_specification_of_computer_column_error() {
     assert_test_validaton_exception(
-        DatabaseValidationError::ComputerColumnCannotBeExplicitlySpecified {
+        DatabaseValidationError::ComputedColumnCannotBeExplicitlySpecified {
             table_name: "cholo".to_string(),
             column_name: "id2".to_string(),
             compute_expression: " 7 ".to_string(),
@@ -467,7 +467,7 @@ DATA cholo(id, id2) {
 #[test]
 fn test_explicit_specification_of_computer_column_error_struct() {
     assert_test_validaton_exception(
-        DatabaseValidationError::ComputerColumnCannotBeExplicitlySpecified {
+        DatabaseValidationError::ComputedColumnCannotBeExplicitlySpecified {
             table_name: "cholo".to_string(),
             column_name: "id2".to_string(),
             compute_expression: " 7 ".to_string(),

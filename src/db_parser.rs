@@ -165,6 +165,7 @@ pub fn parse_sources_inner(
         detached_defaults: Vec::new(),
         sources_db: Vec::new(),
         value_replacements: BTreeMap::new(),
+        data_modules: Vec::new(),
     };
 
     let mut queue: VecDeque<SourceOutputs> = VecDeque::new();
@@ -471,6 +472,7 @@ pub struct SourceOutputs {
     detached_defaults: Vec<DetachedDefaults>,
     sources_db: Vec<InputSource>,
     value_replacements: Replacements,
+    data_modules: Vec<DataModules>,
 }
 
 impl SourceOutputs {
@@ -483,6 +485,7 @@ impl SourceOutputs {
         self.sql_proofs.extend(to_merge.sql_proofs);
         self.datalog_proofs.extend(to_merge.datalog_proofs);
         self.detached_defaults.extend(to_merge.detached_defaults);
+        self.data_modules.extend(to_merge.data_modules);
     }
 
     pub fn table_definitions(&self) -> &[TableDefinition] {
@@ -520,6 +523,10 @@ impl SourceOutputs {
     pub fn sources_db(&self) -> &[InputSource] {
         &self.sources_db
     }
+
+    pub fn data_modules(&self) -> &[DataModules] {
+        &self.data_modules
+    }
 }
 
 pub enum ValidExpressions {
@@ -544,6 +551,15 @@ pub struct DetachedDefaults {
     pub values: Vec<DetachedDefaultDefinition>,
 }
 
+pub enum DataModules {
+    // TODO: add json
+    // TODO: add any executed command module
+    OCaml {
+        path: String,
+        source_file_id: i32,
+    }
+}
+
 enum ValidSourceSegments {
     TDef(TableDefinition),
     TData(TableData),
@@ -552,6 +568,7 @@ enum ValidSourceSegments {
     DataSegment(InputSource),
     ExpressionProof(ExpressionProof),
     DetachedDefaults(DetachedDefaults),
+    DataModule(DataModules),
 }
 
 
@@ -572,6 +589,7 @@ fn parse_source(input: Span, source_file_id: i32) -> IResult<Span, SourceOutputs
         detached_defaults: Vec::new(),
         sources_db: Vec::new(),
         value_replacements: BTreeMap::new(),
+        data_modules: Vec::new(),
     };
 
     let (tail, output) = many0(preceded(
@@ -587,6 +605,7 @@ fn parse_source(input: Span, source_file_id: i32) -> IResult<Span, SourceOutputs
                 parse_detached_defaults,
                 ValidSourceSegments::DetachedDefaults,
             ),
+            map(|i| { parse_data_module(i, source_file_id) }, ValidSourceSegments::DataModule),
         )),
     ))
     .parse(input)?;
@@ -620,6 +639,9 @@ fn parse_source(input: Span, source_file_id: i32) -> IResult<Span, SourceOutputs
             },
             ValidSourceSegments::DetachedDefaults(dd) => {
                 res.detached_defaults.push(dd);
+            }
+            ValidSourceSegments::DataModule(dm) => {
+                res.data_modules.push(dm);
             }
         }
     }
@@ -870,6 +892,22 @@ fn parse_detached_defaults(input: Span) -> IResult<Span, DetachedDefaults> {
     }
 
     Ok((full_tail, res))
+}
+
+fn parse_data_module(input: Span, source_file_id: i32) -> IResult<Span, DataModules> {
+    let (full_tail, (_, _, _, _, _, _, path, _)) =
+        tuple((
+            tag("DATA"),
+            multispace1,
+            tag("MODULE"),
+            multispace1,
+            tag("OCAML"),
+            multispace1,
+            parse_quoted_text,
+            multispace0,
+        )).parse(input)?;
+
+    Ok((full_tail, DataModules::OCaml { path: path.to_string(), source_file_id }))
 }
 
 fn parse_include_segment(input: Span) -> IResult<Span, ValidSourceSegments> {

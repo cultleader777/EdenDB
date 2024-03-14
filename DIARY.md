@@ -340,3 +340,25 @@ DONE: write tests for errors
 
 DONE: child primary keys
 DONE: if data defined with with statement parent primary keys cannot be changed
+
+* 2024-03-12
+
+OCaml generator
+TODO: generate row types, these should be plain old data types serializable to json
+TODO: generate primary key types, user could create these if he wants, they're returned from context
+TODO: generate functions to create plain rows, make sure to account for default fields
+TODO: generate functions to create child of primary key stuff, where internally its trivial destructuring of parent keys to merge into child
+TODO: if column refers to some element use its primary key, but how to serialize?..
+TODO: we'll probably need parent columns?.. no just store variables
+TODO: how about REF columns? Let's keep it loose, string based as we might face chicken and egg problems.
+here our records are loose, they'll be checked later for correctness
+TODO: do I need contexts? Just easier to shoot yourself in the foot... harder to check if value already exists. Just one context, no merging, we're precise here, not like nix
+TODO: do we need seq scan? our data is mainly for insertion, in eden data language we don't do seqscans or analysis...
+TODO: generate context mli,
+
+How about first generate insertion only, with one context, and if we need more we can always add later?
+
+WE WILL NEED TO REFER TO EDEN DB EXISTING DATA WITHOUT PKEYS ANYWAY!!!
+
+DONE: remove generated columns from ocaml data module
+TODO: make sure ocaml data module directory points to absolute path from source

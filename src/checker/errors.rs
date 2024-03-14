@@ -176,7 +176,7 @@ pub enum DatabaseValidationError {
         table_name: String,
         column_name: String,
     },
-    ComputerColumnCannotBeExplicitlySpecified {
+    ComputedColumnCannotBeExplicitlySpecified {
         table_name: String,
         column_name: String,
         compute_expression: String,
@@ -604,6 +604,40 @@ pub enum DatabaseValidationError {
     ReplacementOverLuaGeneratedValuesIsNotSupported {
         table: String,
         replacement_primary_key: String,
+    },
+    OCamlDataModulePathIsFileAndNotDirectory {
+        path: String,
+        explanation: String,
+    },
+    OCamlDataModuleExecutionFailed {
+        path: String,
+        error: String,
+    },
+    OCamlDataModuleExecutionExitCodeNonZero {
+        path: String,
+        exit_code: i32,
+        stdout: String,
+        stderr: String,
+    },
+    OCamlDataModuleNoDataEmitted {
+        path: String,
+        stdout: String,
+        stderr: String,
+    },
+    OCamlDataModuleCannotParseInput {
+        path: String,
+        parsing_errpr: String,
+    },
+    OCamlDataModuleTableDoesntExist {
+        path: String,
+        non_existing_table: String,
+    },
+    OCamlDataModuleBadColumnOutput {
+        path: String,
+        table: String,
+        row_key: String,
+        row_value: String,
+        explanation: String,
     },
 }
 

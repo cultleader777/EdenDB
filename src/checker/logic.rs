@@ -2,7 +2,7 @@
 
 use std::{
     collections::{HashMap, HashSet, BTreeMap},
-    sync::Mutex, path::PathBuf, str::FromStr,
+    sync::Mutex, path::PathBuf, str::FromStr, io::BufRead,
 };
 
 use mlua::Function;
@@ -10,6 +10,7 @@ use once_cell::sync::Lazy;
 use rand::Rng;
 use regex::Regex;
 use rusqlite::ffi::{sqlite3_column_origin_name, sqlite3_column_table_name};
+use serde_json::Value;
 
 use crate::{
     checker::types::{
@@ -18,7 +19,7 @@ use crate::{
     },
     db_parser::{
         SourceOutputs, TableColumn, TableData, TableDataSegment, TableDataStruct,
-        TableDataStructField, TableDataStructFields, TableDefinition, ValueWithPos, valid_unquoted_data_char,
+        TableDataStructField, TableDataStructFields, TableDefinition, ValueWithPos, valid_unquoted_data_char, DataModules,
     }, codegen::write_file_check_if_different,
 };
 
@@ -169,6 +170,7 @@ impl AllData {
         insert_main_data(&mut res, &outputs)?;
         insert_extra_data(&mut res, outputs.table_data_segments())?;
         maybe_insert_lua_data(&mut res, &outputs)?;
+        data_modules(&mut res, &outputs)?;
         check_unused_replacements(&mut res)?;
         compute_generated_columns(&mut res)?;
         maybe_insert_sqlite_data(&mut res, &outputs, sqlite_needed)?;
@@ -190,7 +192,6 @@ impl AllData {
     #[cfg(test)]
     pub fn data_as_json(&self) -> serde_json::Value {
         use serde_json::Number;
-        use serde_json::Value;
 
         let mut tables = serde_json::Map::default();
 
@@ -4439,7 +4440,7 @@ fn insert_structured_data(
             if col.generate_expression.is_some() {
                 if kv_idx.is_some() {
                     return Err(
-                        DatabaseValidationError::ComputerColumnCannotBeExplicitlySpecified {
+                        DatabaseValidationError::ComputedColumnCannotBeExplicitlySpecified {
                             table_name: tname_id.as_str().to_string(),
                             column_name: col.column_name.as_str().to_string(),
                             compute_expression: col.generate_expression.as_ref().unwrap().clone(),
@@ -4805,6 +4806,190 @@ fn maybe_insert_lua_data(
     for seg in &maps_to_push {
         insert_structured_data(res, seg)?;
     }
+
+    Ok(())
+}
+
+fn data_modules(
+    res: &mut AllData,
+    outputs: &SourceOutputs,
+) -> Result<(), DatabaseValidationError> {
+    let modules = outputs.data_modules();
+
+    for module in modules {
+        match module {
+            DataModules::OCaml { path, source_file_id } => {
+                process_ocaml_data_module(res, path.as_str(), outputs, *source_file_id)?;
+            }
+        }
+    }
+
+    Ok(())
+}
+
+type DataModuleOutput = BTreeMap<String, Vec<BTreeMap<String, serde_json::Value>>>;
+
+fn process_ocaml_data_module(
+    res: &mut AllData,
+    path: &str,
+    source_outputs: &SourceOutputs,
+    source_file_id: i32,
+) -> Result<(), DatabaseValidationError> {
+    let source_file = &source_outputs.sources_db()[source_file_id as usize];
+    let source_file_path = &source_file.path;
+
+    if let Ok(md) = std::fs::metadata(path) {
+        if md.is_file() {
+            return Err(DatabaseValidationError::OCamlDataModulePathIsFileAndNotDirectory {
+                path: path.to_string(),
+                explanation: format!("Path {path} expected to be directory, but is file")
+            });
+        }
+    }
+
+    let source_directory = std::path::PathBuf::from_str(&source_file_path)
+        .unwrap().parent().unwrap().to_path_buf();
+    let module_directory = source_directory.join(path);
+    let generated = crate::codegen::ocaml_data_module::generate_ocaml_data_module_sources(res, path);
+    crate::codegen::ocaml_data_module::flush_to_disk(&source_directory, &generated);
+
+    let output =
+        std::process::Command::new("dune")
+            .arg("exec")
+            .arg("main")
+            .current_dir(&module_directory)
+            .output();
+
+    let output = output.map_err(|e| {
+        DatabaseValidationError::OCamlDataModuleExecutionFailed {
+            path: path.to_string(),
+            error: e.to_string(),
+        }
+    })?;
+
+    if !output.status.success() {
+        return Err(DatabaseValidationError::OCamlDataModuleExecutionExitCodeNonZero {
+            path: path.to_string(),
+            exit_code: output.status.code().unwrap_or(7),
+            stdout: String::from_utf8_lossy(&output.stdout).to_string(),
+            stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+        });
+    }
+
+    let mut begin_read = false;
+    let mut buffer = String::new();
+    let begin_marker = crate::codegen::ocaml_data_module::ocaml_data_emit_key_begin();
+    let end_marker = crate::codegen::ocaml_data_module::ocaml_data_emit_key_end();
+    for line in output.stdout.lines() {
+        if let Ok(line) = line {
+            if !begin_read {
+                if begin_marker == line {
+                    begin_read = true;
+                }
+            } else {
+                if end_marker != line {
+                    buffer += &line;
+                    buffer += "\n";
+                } else {
+                    break;
+                }
+            }
+        }
+    }
+
+    if buffer.is_empty() {
+        return Err(DatabaseValidationError::OCamlDataModuleNoDataEmitted {
+            path: path.to_string(),
+            stdout: String::from_utf8_lossy(&output.stdout).to_string(),
+            stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+        });
+    }
+
+    let parsed: DataModuleOutput = serde_json::from_str(&buffer).map_err(|e| {
+        // should never happen because we generate the code, but let's handle for future
+        // so we could reuse this code for faggity languages like typescript
+        // which may disobey our schema
+        DatabaseValidationError::OCamlDataModuleCannotParseInput {
+            path: path.to_string(),
+            parsing_errpr: e.to_string(),
+        }
+    })?;
+
+    for (tname, trows) in &parsed {
+        if trows.is_empty() {
+            continue;
+        }
+
+        let dbi = DBIdentifier::new(&tname)?;
+        let table_idx = res.find_table_named_idx(&dbi);
+        if table_idx.is_empty() {
+            return Err(DatabaseValidationError::OCamlDataModuleTableDoesntExist {
+                path: path.to_string(),
+                non_existing_table: tname.clone(),
+            });
+        }
+        assert_eq!(table_idx.len(), 1);
+
+        let mut td_struct = TableDataStruct {
+            target_table_name: tname.clone(),
+            is_exclusive: false,
+            map: vec![],
+            source_file_id: -1,
+        };
+
+        for row in trows {
+            let mut fields = TableDataStructFields {
+                value_fields: Vec::new(),
+                extra_data: Vec::new(),
+            };
+
+            for (row_k, row_v) in row {
+                let v = match &row_v {
+                    Value::String(s) => s.clone(),
+                    Value::Bool(b) => b.to_string(),
+                    Value::Number(n) => n.to_string(),
+                    Value::Null => {
+                        return Err(DatabaseValidationError::OCamlDataModuleBadColumnOutput {
+                            path: path.to_string(),
+                            table: tname.clone(),
+                            row_key: row_k.clone(),
+                            row_value: row_v.to_string(),
+                            explanation: "json nulls not allowed in output".to_string(),
+                        });
+                    }
+                    Value::Array(_) => {
+                        return Err(DatabaseValidationError::OCamlDataModuleBadColumnOutput {
+                            path: path.to_string(),
+                            table: tname.clone(),
+                            row_key: row_k.clone(),
+                            row_value: row_v.to_string(),
+                            explanation: "json arrays not allowed in output".to_string(),
+                        });
+                    }
+                    Value::Object(_) => {
+                        return Err(DatabaseValidationError::OCamlDataModuleBadColumnOutput {
+                            path: path.to_string(),
+                            table: tname.clone(),
+                            row_key: row_k.clone(),
+                            row_value: row_v.to_string(),
+                            explanation: "json objects not allowed in output".to_string(),
+                        });
+                    }
+                };
+                fields.value_fields.push(TableDataStructField {
+                    key: row_k.to_string(), value: ValueWithPos {
+                        value: v,
+                        offset_start: 0, offset_end: 0
+                    }
+                });
+            }
+
+            td_struct.map.push(fields);
+        }
+
+        insert_structured_data(res, &td_struct)?;
+    }
+
 
     Ok(())
 }

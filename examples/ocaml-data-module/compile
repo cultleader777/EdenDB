@@ -1,0 +1,3 @@
+#!/bin/sh
+
+time ../../target/debug/edendb example.edl --rust-output-directory src

@@ -150,6 +150,11 @@ fn test_smoke_multiple_files_diff_dir() {
     let inner_a = tmp_dir.join("inner-a");
     let inner_b = tmp_dir.join("inner-b");
     let inner_c = inner_b.join("inner-c");
+    let ocaml_data_module = tmp_dir.join("ocaml-data-module");
+    let ocaml_data_module_bin = ocaml_data_module.join("bin");
+
+    std::fs::create_dir(&ocaml_data_module).unwrap();
+    std::fs::create_dir(&ocaml_data_module_bin).unwrap();
     std::fs::create_dir(&inner_a).unwrap();
     std::fs::create_dir(&inner_b).unwrap();
     std::fs::create_dir(&inner_c).unwrap();
@@ -178,6 +183,7 @@ fn test_smoke_multiple_files_diff_dir() {
         FROM test_table
       }
 
+      DATA MODULE OCAML "ocaml-data-module"
       INCLUDE LUA "inner-a/test.lua"
       INCLUDE "inner-b/data.edl"
     "#
@@ -223,6 +229,19 @@ fn test_smoke_multiple_files_diff_dir() {
     )
     .unwrap();
 
+    std::fs::write(
+        ocaml_data_module_bin.join("implementation.ml"),
+        r#"
+open! Context
+open! Db_types
+
+let define_data () =
+  def_test_table { id = 4 };
+  ()
+    "#
+    )
+    .unwrap();
+
     let paths = [
       "root.edl",
       #[cfg(feature = "datalog")]
@@ -239,11 +258,102 @@ fn test_smoke_multiple_files_diff_dir() {
                 {"id": 1.0, "is_even": false},
                 {"id": 2.0, "is_even": true},
                 {"id": 3.0, "is_even": false},
+                {"id": 4.0, "is_even": true},
             ],
             "test_mview": [
                 {"maybe_id": 0.0},
                 {"maybe_id": 0.0},
                 {"maybe_id": 2.0},
+                {"maybe_id": 4.0},
+            ],
+        }),
+    );
+}
+
+#[test]
+fn test_ocaml_data_modules() {
+    let tmp_dir = random_test_dir();
+    let data_module = tmp_dir.join("data-module");
+    let data_module_bin = data_module.join("bin");
+
+    std::fs::create_dir(data_module).unwrap();
+    std::fs::create_dir(&data_module_bin).unwrap();
+
+    std::fs::write(
+        tmp_dir.join("root.edl"),
+        r#"
+      DATA MODULE OCAML "data-module"
+
+      TABLE test_table {
+        id INT PRIMARY KEY,
+        is_even BOOL GENERATED AS { id % 2 == 0 }
+      }
+
+      TABLE other_table {
+        other_id INT PRIMARY KEY CHILD OF test_table,
+        some_float FLOAT,
+        some_bool BOOL,
+        some_text TEXT,
+        some_int INT,
+        some_default INT DEFAULT 4,
+        generated_int INT GENERATED AS { some_int * 7 },
+      }
+    "#
+        .replace("TMP_DIR", tmp_dir.to_str().unwrap()),
+    )
+    .unwrap();
+
+    std::fs::write(data_module_bin.join("implementation.ml"), r#"
+open! Context
+open! Db_types
+
+let define_data () =
+  (* define data in tables here *)
+  (* def_server (mk_server ~hostname:"foo" ~ram_mb:777); *)
+  let a = mk_test_table ~id:123 () in
+  let parent = pkey_of_test_table a in
+  def_test_table a;
+  def_other_table (mk_other_table_child_of_test_table
+    ~parent ~other_id:21 ~some_float:3.14 ~some_bool:false ~some_text:"henlo" ~some_int:42 ());
+  def_other_table (mk_other_table
+    ~id:123 ~other_id:28
+    ~some_float:7.14
+    ~some_bool:true ~some_text:"moo"
+    ~some_default:40
+    ~some_int:777 ());
+  ()
+"#).unwrap();
+
+    let paths = [
+      "root.edl",
+    ]
+        .iter()
+        .map(|i| tmp_dir.join(i).to_str().unwrap().to_string())
+        .collect::<Vec<_>>();
+
+    assert_compiles_data_paths(
+        paths.as_slice(),
+        json!({
+            "test_table": [
+                {"id": 123.0, "is_even": false},
+            ],
+            "other_table": [
+                {"id": 123.0,
+                 "other_id": 21.0,
+                 "some_float": 3.14,
+                 "some_bool": false,
+                 "some_text": "henlo",
+                 "some_int": 42.0,
+                 "generated_int": 294.0,
+                 "some_default": 4.0},
+                {"id": 123.0,
+                 "other_id": 28.0,
+                 "some_float": 7.14,
+                 "some_bool": true,
+                 "some_text": "moo",
+                 "some_int": 777.0,
+                 "generated_int": 5439.0,
+                 "some_default": 40.0},
             ],
         }),
     );

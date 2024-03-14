@@ -289,7 +289,7 @@ impl DataTable {
                 Some((col_idx, df_column)) => {
                     if table_column.generate_expression.is_some() {
                         return Err(
-                            DatabaseValidationError::ComputerColumnCannotBeExplicitlySpecified {
+                            DatabaseValidationError::ComputedColumnCannotBeExplicitlySpecified {
                                 table_name: self.name.as_str().to_string(),
                                 column_name: table_column.column_name.as_str().to_string(),
                                 compute_expression: table_column
