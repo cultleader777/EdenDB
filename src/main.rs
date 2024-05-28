@@ -1,4 +1,4 @@
-use std::mem::size_of;
+use std::{mem::size_of, path::PathBuf};
 
 use checker::logic::AllData;
 use codegen::CodeGenerator;
@@ -39,13 +39,7 @@ fn main() {
     if let Some(source_dump_file) = &args.dump_source_file {
         match db_parser::serialize_source_outputs(&sources) {
             Ok(bytes) => {
-                match std::fs::write(source_dump_file, bytes) {
-                    Ok(_) => {},
-                    Err(err) => {
-                        eprint!("{err}");
-                        std::process::exit(1);
-                    }
-                }
+                crate::codegen::write_file_check_if_different(&PathBuf::from(source_dump_file), &bytes);
             }
             Err(err) => {
                 eprint!("{err}");
