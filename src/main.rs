@@ -29,12 +29,37 @@ fn main() {
         })
         .collect();
 
-    let sources = db_parser::parse_sources_with_external(inputs.as_mut_slice());
+    let sources = db_parser::parse_sources_with_external(&mut inputs[0..1]);
     if let Err(e) = sources.as_ref() {
         eprint!("{e}");
         std::process::exit(1);
     }
     let mut sources = sources.unwrap();
+
+    if let Some(source_dump_file) = &args.dump_source_file {
+        match db_parser::serialize_source_outputs(&sources) {
+            Ok(bytes) => {
+                match std::fs::write(source_dump_file, bytes) {
+                    Ok(_) => {},
+                    Err(err) => {
+                        eprint!("{err}");
+                        std::process::exit(1);
+                    }
+                }
+            }
+            Err(err) => {
+                eprint!("{err}");
+                std::process::exit(1);
+            }
+        }
+    }
+
+    let rest_inputs = &mut inputs[1..];
+    if let Err(err) = sources.parse_into_external(rest_inputs) {
+        eprint!("{err}");
+        std::process::exit(1);
+    }
+
     if let Some(replacements_file) = &args.replacements_file {
         match std::fs::read(&replacements_file) {
             Ok(file) => {

@@ -139,6 +139,7 @@ pub fn serialize_source_outputs(
     Ok(compressed)
 }
 
+#[allow(dead_code)]
 pub fn deserialize_source_outputs(
     input: &[u8]
 ) -> Result<SourceOutputs, Box<dyn Error + '_>> {

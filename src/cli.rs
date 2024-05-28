@@ -22,6 +22,11 @@ pub struct Cli {
     /// Input sources to compile and check
     #[clap(required = true, min_values(1))]
     pub inputs: Vec<String>,
+
+    /// Dump source serialization to file after first file parse
+    /// You will not get why this is needed, this is specific feature for Eden platform
+    #[clap(long)]
+    pub dump_source_file: Option<String>,
 }
 
 pub fn get_args() -> Cli {
