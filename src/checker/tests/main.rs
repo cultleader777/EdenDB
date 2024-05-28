@@ -1364,3 +1364,217 @@ DATA disks {
         }),
     );
 }
+
+#[test]
+fn test_serialization_and_deserialization() {
+    let input = r#"
+
+TABLE regions {
+    mnemonic TEXT PRIMARY KEY,
+    full_name TEXT,
+}
+
+TABLE servers {
+    hostname TEXT PRIMARY KEY,
+    region REF regions,
+    disks INT DEFAULT 1,
+}
+
+DATA regions {
+    europe, "Le europe, alpes and stuff";
+    usa, MURICA;
+    australia, "Doesn't exist";
+}
+
+DATA servers(hostname, region) {
+    fizzle, europe;
+    drizzle, usa;
+}
+
+    "#;
+    use crate::db_parser::InputSource;
+
+    let inp = &mut [InputSource {
+        path: "test".to_string(),
+        contents: Some(input.to_string()),
+        source_dir: None,
+        line_comments: Vec::new(),
+    }];
+    let parsed = crate::db_parser::parse_sources(inp);
+    assert!(parsed.is_ok());
+    let parsed = parsed.unwrap();
+    let serialized = crate::db_parser::serialize_source_outputs(&parsed);
+    assert!(serialized.is_ok());
+    let serialized = serialized.unwrap();
+    let deserialized = crate::db_parser::deserialize_source_outputs(&serialized);
+    assert!(deserialized.is_ok());
+    let deserialized = deserialized.unwrap();
+
+    assert_eq!(parsed, deserialized);
+}
+
+#[test]
+fn test_serialization_and_extra_parsing_input_source_output() {
+    let input = r#"
+
+TABLE regions {
+    mnemonic TEXT PRIMARY KEY,
+    full_name TEXT,
+}
+
+TABLE servers {
+    hostname TEXT PRIMARY KEY,
+    region REF regions,
+    disks INT DEFAULT 1,
+}
+
+DATA regions {
+    europe, "Le europe, alpes and stuff";
+    usa, MURICA;
+    australia, "Doesn't exist";
+}
+
+DATA servers(hostname, region) {
+    fizzle, europe;
+    drizzle, usa;
+}
+
+    "#;
+
+    let input2 = r#"
+
+DATA servers(hostname, region) {
+    hizzle, australia;
+}
+
+    "#;
+    use crate::db_parser::InputSource;
+
+    let inp = &mut [InputSource {
+        path: "test".to_string(),
+        contents: Some(input.to_string()),
+        source_dir: None,
+        line_comments: Vec::new(),
+    }];
+    let parsed = crate::db_parser::parse_sources(inp);
+    assert!(parsed.is_ok());
+    let parsed = parsed.unwrap();
+    let serialized = crate::db_parser::serialize_source_outputs(&parsed);
+    assert!(serialized.is_ok());
+    let serialized = serialized.unwrap();
+    let deserialized = crate::db_parser::deserialize_source_outputs(&serialized);
+    assert!(deserialized.is_ok());
+    let mut deserialized = deserialized.unwrap();
+
+    let other_inp = &mut [InputSource {
+        path: "test2".to_string(),
+        contents: Some(input2.to_string()),
+        source_dir: None,
+        line_comments: Vec::new(),
+    }];
+
+    assert_eq!(deserialized.sources_db().len(), 1);
+
+    deserialized.parse_into_external(other_inp).expect("Can't parse");
+
+    assert_eq!(deserialized.sources_db().len(), 2);
+
+    let all_data = AllData::new(deserialized);
+    assert!(all_data.is_ok());
+    let all_data = all_data.unwrap();
+
+    assert_eq!(all_data.tables.len(), 2);
+
+    let regions = &all_data.tables[0];
+    let servers = &all_data.tables[1];
+
+    assert_eq!(regions.name.as_str(), "regions");
+    assert_eq!(regions.columns.len(), 2);
+    let regions_mnemonic = &regions.columns[0];
+    let regions_full_name = &regions.columns[1];
+
+    assert_eq!(regions_mnemonic.column_name.as_str(), "mnemonic");
+    assert_eq!(regions_mnemonic.data.column_type(), DBType::Text);
+    assert_eq!(regions_mnemonic.key_type, KeyType::Primary);
+    assert!(!regions_mnemonic.data.has_default_value());
+
+    assert_eq!(regions_full_name.column_name.as_str(), "full_name");
+    assert_eq!(regions_full_name.data.column_type(), DBType::Text);
+    assert_eq!(regions_full_name.key_type, KeyType::NotAKey);
+    assert!(!regions_full_name.data.has_default_value());
+
+    if let ColumnVector::Strings(v) = &regions_mnemonic.data {
+        assert_eq!(v.len(), 3);
+        assert_eq!(v.v[0], "europe");
+        assert_eq!(v.v[1], "usa");
+        assert_eq!(v.v[2], "australia");
+    } else {
+        panic!()
+    }
+    if let ColumnVector::Strings(v) = &regions_full_name.data {
+        assert_eq!(v.len(), 3);
+        assert_eq!(v.v[0], "Le europe, alpes and stuff");
+        assert_eq!(v.v[1], "MURICA");
+        assert_eq!(v.v[2], "Doesn't exist");
+    } else {
+        panic!()
+    }
+
+    assert_eq!(servers.name.as_str(), "servers");
+    assert_eq!(servers.columns.len(), 3);
+    let servers_hostname = &servers.columns[0];
+    let servers_region = &servers.columns[1];
+    let servers_disks = &servers.columns[2];
+
+    assert_eq!(servers_hostname.column_name.as_str(), "hostname");
+    assert_eq!(servers_hostname.data.column_type(), DBType::Text);
+    assert_eq!(servers_hostname.key_type, KeyType::Primary);
+    assert!(!servers_hostname.data.has_default_value());
+
+    assert_eq!(servers_region.column_name.as_str(), "region");
+    assert_eq!(servers_region.data.column_type(), DBType::Text);
+    assert_eq!(
+        servers_region.maybe_foreign_key,
+        Some(crate::checker::types::ForeignKey {
+            foreign_table: DBIdentifier::new("regions").unwrap(),
+            is_to_foreign_child_table: false,
+            is_to_self_child_table: false,
+            is_explicit_foreign_child_reference: false,
+        })
+    );
+    assert!(!servers_region.data.has_default_value());
+
+    assert_eq!(servers_disks.column_name.as_str(), "disks");
+    assert_eq!(servers_disks.data.column_type(), DBType::Int);
+    assert_eq!(servers_disks.key_type, KeyType::NotAKey);
+    if let ColumnVector::Ints(i) = &servers_disks.data {
+        assert_eq!(i.default_value, Some(1));
+    } else {
+        panic!()
+    }
+
+    if let ColumnVector::Strings(v) = &servers_hostname.data {
+        assert_eq!(v.len(), 3);
+        assert_eq!(v.v[0], "fizzle");
+        assert_eq!(v.v[1], "drizzle");
+        assert_eq!(v.v[2], "hizzle");
+    } else {
+        panic!()
+    }
+    if let ColumnVector::Strings(v) = &servers_region.data {
+        assert_eq!(v.len(), 3);
+        assert_eq!(v.v[0], "europe");
+        assert_eq!(v.v[1], "usa");
+        assert_eq!(v.v[2], "australia");
+    } else {
+        panic!()
+    }
+    if let ColumnVector::Ints(v) = &servers_disks.data {
+        assert_eq!(v.len(), 3);
+        assert_eq!(v.v[0], 1);
+        assert_eq!(v.v[1], 1);
+        assert_eq!(v.v[2], 1);
+    } else {
+        panic!()
+    }
+}

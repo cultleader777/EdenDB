@@ -362,3 +362,12 @@ WE WILL NEED TO REFER TO EDEN DB EXISTING DATA WITHOUT PKEYS ANYWAY!!!
 
 DONE: remove generated columns from ocaml data module
 TODO: make sure ocaml data module directory points to absolute path from source
+
+* 2024-05-28
+
+DONE: ramifications for not updating sources_db when merging input sources with deserialized sources? maybe we just deserialize and set sources db? maybe not needed... but wait, its from actual sources and still has valid offsets! what if we added offset to sources db when parsing, then we could just merge those by id?
+
+1. deserialize the inputs db
+2. add offset to source id
+3. merge those in order
+4. profit?

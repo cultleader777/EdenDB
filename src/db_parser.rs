@@ -25,7 +25,7 @@ pub type IResult<I, O, E = nom::error::VerboseError<I>> = Result<(I, O), nom::Er
 
 type Span<'a> = LocatedSpan<&'a str>;
 
-#[derive(Debug)]
+#[derive(PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
 pub struct TableColumn {
     pub name: String,
     pub the_type: String,
@@ -40,17 +40,17 @@ pub struct TableColumn {
     pub generated_expression: Option<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(PartialEq, Eq, Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct UniqConstraint {
     pub fields: Vec<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(PartialEq, Eq, Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct TableRowCheck {
     pub expression: String,
 }
 
-#[derive(Debug)]
+#[derive(PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
 pub struct TableDefinition {
     pub name: String,
     pub columns: Vec<TableColumn>,
@@ -59,32 +59,32 @@ pub struct TableDefinition {
     pub mat_view_expression: Option<String>,
 }
 
-#[derive(PartialEq, Eq, Debug, Clone)]
+#[derive(PartialEq, Eq, Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ValueWithPos {
     pub value: String,
     pub offset_start: usize,
     pub offset_end: usize,
 }
 
-#[derive(PartialEq, Eq, Debug)]
+#[derive(PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
 pub struct TableDataRow {
     pub value_fields: Vec<ValueWithPos>,
     pub extra_data: Vec<TableData>,
 }
 
-#[derive(PartialEq, Eq, Debug, Clone)]
+#[derive(PartialEq, Eq, Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct TableDataStructField {
     pub key: String,
     pub value: ValueWithPos,
 }
 
-#[derive(PartialEq, Eq, Debug)]
+#[derive(PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
 pub struct TableDataStructFields {
     pub value_fields: Vec<TableDataStructField>,
     pub extra_data: Vec<TableDataStruct>,
 }
 
-#[derive(PartialEq, Eq, Debug)]
+#[derive(PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
 pub struct TableDataStruct {
     pub target_table_name: String,
     pub is_exclusive: bool,
@@ -92,7 +92,7 @@ pub struct TableDataStruct {
     pub source_file_id: i32,
 }
 
-#[derive(PartialEq, Eq, Debug)]
+#[derive(PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
 pub struct TableData {
     pub target_table_name: String,
     pub target_fields: Vec<String>,
@@ -101,7 +101,7 @@ pub struct TableData {
     pub source_file_id: i32,
 }
 
-#[derive(Clone)]
+#[derive(PartialEq, Eq, Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct InputSource {
     pub path: String,
     pub contents: Option<String>,
@@ -120,13 +120,33 @@ impl TableColumn {
 /// Reading external files is disabled, mainly for testing
 #[cfg(test)]
 pub fn parse_sources(input: &mut [InputSource]) -> Result<SourceOutputs, Box<dyn Error + '_>> {
-    parse_sources_inner(input, false)
+    parse_sources_inner(input, false, 0)
 }
 
 pub fn parse_sources_with_external(
     input: &mut [InputSource],
 ) -> Result<SourceOutputs, Box<dyn Error + '_>> {
-    parse_sources_inner(input, true)
+    parse_sources_inner(input, true, 0)
+}
+
+// these are used to parse some data, like table definitions and schema
+// but finish parsing user data later
+pub fn serialize_source_outputs(
+    input: &SourceOutputs
+) -> Result<Vec<u8>, Box<dyn Error + '_>> {
+    let serialized = bincode::serialize(input)?;
+    let compressed = lz4_flex::compress_prepend_size(&serialized);
+    Ok(compressed)
+}
+
+pub fn deserialize_source_outputs(
+    input: &[u8]
+) -> Result<SourceOutputs, Box<dyn Error + '_>> {
+    let decompressed = lz4_flex::decompress_size_prepended(input).map_err(|e| {
+        e.to_string()
+    })?;
+    let res: SourceOutputs = bincode::deserialize(&decompressed)?;
+    Ok(res)
 }
 
 pub fn strip_source_comments(input: &str) -> (String, Vec<String>) {
@@ -154,6 +174,7 @@ pub fn strip_source_comments(input: &str) -> (String, Vec<String>) {
 pub fn parse_sources_inner(
     input: &mut [InputSource],
     read_external_files: bool,
+    source_id_offset: i32,
 ) -> Result<SourceOutputs, Box<dyn Error + '_>> {
     let mut result = SourceOutputs {
         table_definitions: Vec::new(),
@@ -177,7 +198,7 @@ pub fn parse_sources_inner(
 
         let src = i.contents.as_ref().unwrap();
         let s: Span = Span::new(src.as_str());
-        let source_id = result.sources_db.len() as i32;
+        let source_id = (result.sources_db.len() as i32) + source_id_offset;
         let (_, res) = parse_source_with_path(s, &i.source_dir, source_id)
             .map_err(|e| to_parsing_error(&i.path, s, e))?;
         queue.push_back(res);
@@ -449,6 +470,8 @@ fn maybe_read_input_source<'a>(
     Ok(())
 }
 
+
+#[derive(PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
 pub enum TableDataSegment {
     DataFrame(TableData),
     StructuredData(TableDataStruct),
@@ -456,12 +479,13 @@ pub enum TableDataSegment {
 
 pub type Replacements = BTreeMap<String, Vec<TableReplacement>>;
 
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
 pub struct TableReplacement {
     pub primary_key: String,
     pub replacements: BTreeMap<String, String>,
 }
 
+#[derive(PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
 pub struct SourceOutputs {
     table_definitions: Vec<TableDefinition>,
     table_data_segments: Vec<TableDataSegment>,
@@ -470,9 +494,9 @@ pub struct SourceOutputs {
     sql_proofs: Vec<ExpressionProof>,
     datalog_proofs: Vec<ExpressionProof>,
     detached_defaults: Vec<DetachedDefaults>,
+    data_modules: Vec<DataModules>,
     sources_db: Vec<InputSource>,
     value_replacements: Replacements,
-    data_modules: Vec<DataModules>,
 }
 
 impl SourceOutputs {
@@ -485,7 +509,16 @@ impl SourceOutputs {
         self.sql_proofs.extend(to_merge.sql_proofs);
         self.datalog_proofs.extend(to_merge.datalog_proofs);
         self.detached_defaults.extend(to_merge.detached_defaults);
+        self.sources_db.extend(to_merge.sources_db);
         self.data_modules.extend(to_merge.data_modules);
+    }
+
+    pub fn parse_into_external<'a>(&mut self, input: &'a mut [InputSource]) -> Result<(), Box<dyn Error + 'a>> {
+        let next_source_id = self.sources_db.len() as i32;
+        let res = parse_sources_inner(input, true, next_source_id)?;
+        self.merge(res);
+
+        Ok(())
     }
 
     pub fn table_definitions(&self) -> &[TableDefinition] {
@@ -529,11 +562,13 @@ impl SourceOutputs {
     }
 }
 
+#[derive(PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
 pub enum ValidExpressions {
     Sql,
     Datalog,
 }
 
+#[derive(PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
 pub struct ExpressionProof {
     pub comment: String,
     pub output_table_name: String,
@@ -541,16 +576,19 @@ pub struct ExpressionProof {
     pub expression_type: ValidExpressions,
 }
 
+#[derive(PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
 pub struct DetachedDefaultDefinition {
     pub table: String,
     pub column: String,
     pub value: String,
 }
 
+#[derive(PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
 pub struct DetachedDefaults {
     pub values: Vec<DetachedDefaultDefinition>,
 }
 
+#[derive(PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
 pub enum DataModules {
     // TODO: add json
     // TODO: add any executed command module
