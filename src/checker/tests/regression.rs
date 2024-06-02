@@ -341,7 +341,7 @@ TABLE application {
 TABLE http_endpoint {
     http_endpoint_name TEXT PRIMARY KEY CHILD OF application,
     path TEXT, // inline arguments encoded
-    method REF http_methods,
+    http_method REF http_methods,
     input_body_type TEXT DEFAULT '',
     output_body_type TEXT DEFAULT '',
     data_type REF http_endpoint_data_type,
@@ -382,7 +382,7 @@ DATA STRUCT application [
         http_endpoint_name: primary,
         data_type: json,
         path: '/henlo/boi?hey?yo',
-        method: GET,
+        http_method: GET,
       }
     ]
   }
@@ -397,7 +397,7 @@ DATA STRUCT application [
                 {"name": "ocaml"},
             ],
             "http_endpoint": [
-                {"application_name": "hello_world", "http_endpoint_name": "primary", "data_type": "json", "path": "/henlo/boi?hey?yo", "method": "GET", "input_body_type": "", "output_body_type": ""}
+                {"application_name": "hello_world", "http_endpoint_name": "primary", "data_type": "json", "path": "/henlo/boi?hey?yo", "http_method": "GET", "input_body_type": "", "output_body_type": ""}
             ],
             "http_endpoint_data_type": [
                 {"http_endpoint_data_type": "json"},

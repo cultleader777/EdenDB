@@ -5872,6 +5872,19 @@ fn reserved_table_column_names() -> ResColumnNames {
         ("parent", &check_is),        // generated column for storing parent row id
         ("children_", &starts_with),  // generated column for children of parents to table
         ("referrers_", &starts_with), // generated column for all values referred to by certain table
+        ("method", &check_is),        // reserved language keywords
+        ("while", &check_is),         // reserved language keywords
+        ("if", &check_is),            // reserved language keywords
+        ("do", &check_is),            // reserved language keywords
+        ("for", &check_is),           // reserved language keywords
+        ("let", &check_is),           // reserved language keywords
+        ("continue", &check_is),      // reserved language keywords
+        ("break", &check_is),         // reserved language keywords
+        ("class", &check_is),         // reserved language keywords
+        ("object", &check_is),        // reserved language keywords
+        ("struct", &check_is),        // reserved language keywords
+        ("enum", &check_is),          // reserved language keywords
+        ("with", &check_is),          // reserved language keywords
     ]
 }
 
