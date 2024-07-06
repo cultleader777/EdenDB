@@ -236,7 +236,7 @@ open! Context
 open! Db_types
 
 let define_data () =
-  def_test_table { id = 4 };
+  push global_db.test_table { id = 4 };
   ()
     "#
     )
@@ -312,15 +312,19 @@ let define_data () =
   (* def_server (mk_server ~hostname:"foo" ~ram_mb:777); *)
   let a = mk_test_table ~id:123 () in
   let parent = pkey_of_test_table a in
-  def_test_table a;
-  def_other_table (mk_other_table_child_of_test_table
-    ~parent ~other_id:21 ~some_float:3.14 ~some_bool:false ~some_text:"henlo" ~some_int:42 ());
-  def_other_table (mk_other_table
+  push global_db.test_table a;
+  mk_other_table_child_of_test_table
+    ~parent ~other_id:21 ~some_float:3.14 ~some_bool:false ~some_text:"henlo" ~some_int:42 ()
+  |> push global_db.other_table;
+  let other_db = database_create () in
+  mk_other_table
     ~id:123 ~other_id:28
     ~some_float:7.14
     ~some_bool:true ~some_text:"moo"
     ~some_default:40
-    ~some_int:777 ());
+    ~some_int:777 ()
+  |> push other_db.other_table;
+  merge_to_global other_db;
   ()
 "#).unwrap();
 

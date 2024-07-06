@@ -135,22 +135,33 @@ pub fn ocaml_data_emit_key_end() -> String {
     format!("reading over boi {}", ocaml_data_emit_key())
 }
 
-fn generate_context_files(data: &AllData) -> ContextFiles {
+fn db_type(data: &[&DataTable]) -> String {
     let mut res = String::new();
-    let mut mli = String::new();
-    let tables_sorted = data.tables_sorted();
-
-    res += lib_growing_array();
 
     res += "type database = {\n";
-    for t in &tables_sorted {
-        res += "  ";
+    for t in data {
+        res += "  mutable ";
         res += t.name.as_str();
         res += ": Db_types.table_row_";
         res += t.name.as_str();
         res += " growing_array;\n";
     }
     res += "}\n";
+
+    res
+}
+
+fn generate_context_files(data: &AllData) -> ContextFiles {
+    let mut res = String::new();
+    let mut mli = String::new();
+    let tables_sorted = data.tables_sorted();
+    let db_type = db_type(&tables_sorted);
+
+    mli += mli_growing_array();
+    res += lib_growing_array();
+
+    res += &db_type;
+    mli += &db_type;
 
     res += "type database_to_serialize = {\n";
     for t in &tables_sorted {
@@ -180,35 +191,42 @@ fn generate_context_files(data: &AllData) -> ContextFiles {
         res += "\n";
     }
 
-    res += "let the_db: database = {\n";
+    res += "let database_create () : database = {\n";
     for t in &tables_sorted {
         res += "  ";
         res += t.name.as_str();
-        res += " = create ~default_value:_default_table_row_";
+        res += " = grarr_create ~default_value:_default_table_row_";
         res += t.name.as_str();
         res += ";\n";
     }
     res += "}\n";
+    res += "let global_db: database = database_create ()\n";
     res += "\n";
 
+    res += "let merge_into_database ~(into: database) ~(from: database) =\n";
+    res += "  (* We don't want to merge same dbs *)\n";
+    res += "  assert (into == from |> not);\n";
     for t in &tables_sorted {
-        res += "let def_";
+        res += "  iter from.";
         res += t.name.as_str();
-        res += " (input: Db_types.table_row_";
+        res += " (fun elem -> push into.";
         res += t.name.as_str();
-        res += ")=\n";
-        res += "  append the_db.";
-        res += t.name.as_str();
-        res += " input\n";
-        res += "\n";
+        res += " elem);\n";
     }
+    res += "  ()\n";
+
+    res += r#"
+
+let merge_to_global (from: database) =
+  merge_into_database ~into:global_db ~from
+"#;
 
     res += "let dump_state_to_stdout () =\n";
     res += "  let final_output: database_to_serialize = {\n";
     for t in &tables_sorted {
         res += "    ";
         res += t.name.as_str();
-        res += " = to_array the_db.";
+        res += " = to_array global_db.";
         res += t.name.as_str();
         res += ";\n";
     }
@@ -220,14 +238,13 @@ fn generate_context_files(data: &AllData) -> ContextFiles {
     writeln!(&mut res, "  print_endline \"{}\"", ocaml_data_emit_key_end()).unwrap();
     res += "\n";
 
-    for t in &tables_sorted {
-        mli += "val def_";
-        mli += t.name.as_str();
-        mli += ": Db_types.table_row_";
-        mli += t.name.as_str();
-        mli += " -> unit\n";
-    }
-    mli += "val dump_state_to_stdout: unit -> unit\n";
+    mli += r#"
+val database_create: unit -> database
+val dump_state_to_stdout: unit -> unit
+val global_db: database
+val merge_into_database: into:database -> from:database -> unit
+val merge_to_global: database -> unit
+"#;
 
     ContextFiles { ml: res, mli }
 }
@@ -491,6 +508,19 @@ pub fn flush_to_disk(out_dir: &PathBuf, files: &[OCamlCodegenOutput]) {
     }
 }
 
+fn mli_growing_array() -> &'static str {
+    r#"
+type 'a growing_array
+
+val grarr_create: default_value:'a -> 'a growing_array
+val push: 'a growing_array -> 'a -> unit
+val filter: 'a growing_array -> ('a -> bool) -> 'a growing_array
+val iter: 'a growing_array -> ('a -> unit) -> unit
+val map: 'a growing_array -> ('a -> 'a) -> 'a growing_array
+val filter_map: 'a growing_array -> ('a -> 'a option) -> 'a growing_array
+"#
+}
+
 fn lib_growing_array() -> &'static str {
     r#"
 type 'a growing_array = {
@@ -509,7 +539,7 @@ let grarr_max_levels = 32
 let compute_level_offset level =
     16 lsl (level - 1)
 
-let create ~default_value =
+let grarr_create ~default_value =
     let empty_arr = [||] in
     let l1_arr = Array.make grarr_max_levels empty_arr in
     l1_arr.(0) <- Array.make grarr_initial_level default_value;
@@ -523,7 +553,7 @@ let create ~default_value =
         default_value = default_value;
     }
 
-let append (arr: 'a growing_array) (to_push: 'a) =
+let push (arr: 'a growing_array) (to_push: 'a) =
     if arr.size < arr.capacity then (
         arr.arr.(arr.level).(arr.size - arr.level_offset) <- to_push;
         arr.size <- arr.size + 1;
@@ -555,6 +585,31 @@ let iter (arr: 'a growing_array) (func: 'a -> unit) =
         incr level;
     done
 
+let filter (arr: 'a growing_array) (func: 'a -> bool): 'a growing_array =
+  let new_arr = grarr_create ~default_value:arr.default_value in
+  iter arr (fun i ->
+      if func i then (
+        push new_arr i
+      )
+    );
+  new_arr
+
+let filter_map (arr: 'a growing_array) (func: 'a -> 'a option): 'a growing_array =
+  let new_arr = grarr_create ~default_value:arr.default_value in
+  iter arr (fun i ->
+      match func i with
+      | Some res -> push new_arr res
+      | None -> ()
+    );
+  new_arr
+
+let map (arr: 'a growing_array) (func: 'a -> 'a): 'a growing_array =
+  let new_arr = grarr_create ~default_value:arr.default_value in
+  iter arr (fun i ->
+      push new_arr (func i)
+    );
+  new_arr
+
 let to_array (arr: 'a growing_array) : 'a array =
   let res = Array.make arr.size arr.default_value in
   let counter = ref 0 in
@@ -563,8 +618,6 @@ let to_array (arr: 'a growing_array) : 'a array =
       incr counter;
     );
   res
-
-
 "#
 }
 
